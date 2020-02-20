@@ -2,11 +2,10 @@
 #include <plugin.h>
 
 void test_image(struct obs_source_frame2 *frame, int size) {
-    uint32_t y, x;
+    int y, x;
     uint8_t *pixels = malloc(size * size * 4);
     if (!pixels) return;
 
-    dlog("genrating %dx%d test image", size, size);
     frame->data[0] = pixels;
     frame->linesize[0] = size * 4;
     frame->format = VIDEO_FORMAT_BGRX;

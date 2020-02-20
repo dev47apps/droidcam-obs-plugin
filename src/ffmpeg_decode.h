@@ -1,5 +1,6 @@
 /*
     Copyright (C) 2014 by Hugh Bailey <obs.jim@gmail.com>
+    Copyright (C) 2020 github.com/aramg
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -49,7 +50,7 @@ struct ffmpeg_decode {
 	size_t packet_size;
 };
 
-int ffmpeg_decode_init(struct ffmpeg_decode *decode, enum AVCodecID id, bool use_hw);
+int ffmpeg_decode_init(struct ffmpeg_decode *decode, uint8_t* header, enum AVCodecID id, bool use_hw);
 void ffmpeg_decode_free(struct ffmpeg_decode *decode);
 
 bool ffmpeg_decode_audio(struct ffmpeg_decode *decode, struct obs_source_audio *audio,
@@ -63,6 +64,15 @@ uint8_t* ffmpeg_decode_get_buffer(struct ffmpeg_decode *decode, int size);
 
 static inline bool ffmpeg_decode_valid(struct ffmpeg_decode *decode) {
 	return decode->decoder != NULL;
+}
+
+static inline int ffmpeg_decode_init_video(struct ffmpeg_decode *decode, enum AVCodecID id) {
+	bool use_hw = true;
+	return ffmpeg_decode_init(decode, NULL, id, use_hw);
+}
+
+static inline int ffmpeg_decode_init_audio(struct ffmpeg_decode *decode, uint8_t* header, enum AVCodecID id) {
+	return ffmpeg_decode_init(decode, header, id, false);
 }
 
 #ifdef __cplusplus

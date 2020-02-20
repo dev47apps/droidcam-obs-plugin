@@ -19,25 +19,55 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <util/threading.h>
 #include <util/platform.h>
 
+#include <vector>
+#include <mutex>
+
 #include "ffmpeg_decode.h"
 #include "plugin.h"
 #include "buffer_util.h"
 
-#define FPS 30
-#define NANOSECONDS 1000000000
-#define MILLISECONDS 1000
+#define FPS 10
+#define MILLI_SEC 1000
+#define NANO_SEC  1000000000
+
+enum class Action {
+    None,
+    Activate,
+    Deactivate,
+};
 
 struct droidcam_obs_plugin {
     obs_source_t *source;
     os_event_t *stop_signal;
     pthread_t audio_thread;
     pthread_t video_thread;
+    pthread_t worker_thread;
     enum video_range_type range;
     struct obs_source_audio obs_audio_frame;
     struct obs_source_frame2 obs_video_frame;
     struct ffmpeg_decode video_decoder;
     struct ffmpeg_decode audio_decoder;
     uint64_t time_start;
+
+    std::mutex actions_lock;
+    vector<Action> actions;
+
+    inline void add_action(Action action) {
+        actions_lock.lock();
+        actions.push_back(action);
+        m.unlock();
+    }
+
+    inline Action next_action(void) {
+        Action action = Action::None;
+        if (actions.size()) {
+            actions_lock.lock();
+            action = actions.front();
+            actions.erase(actions.begin());
+            actions_lock.unlock();
+        }
+        return action;
+    }
 };
 
 #define MAXCONFIG 1024
@@ -105,8 +135,7 @@ static void do_video_frame(FILE *fp, struct droidcam_obs_plugin *plugin) {
     }
 
     if (!ffmpeg_decode_valid(decoder)) {
-        bool useHW = true;
-        if (ffmpeg_decode_init(decoder, AV_CODEC_ID_H264, useHW) < 0) {
+        if (ffmpeg_decode_init_video(decoder, AV_CODEC_ID_H264) < 0) {
             elog("could not initialize video decoder");
             return;
         }
@@ -137,7 +166,7 @@ static void do_video_frame(FILE *fp, struct droidcam_obs_plugin *plugin) {
 
 // https://obsproject.com/docs/reference-sources.html#c.obs_source_output_video
 static void *video_thread(void *data) {
-    struct droidcam_obs_plugin *plugin = data;
+    droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
     uint64_t cur_time = os_gettime_ns();
 
     FILE *fp = fopen("/home/user/dev/droidcam-obs/rec.h264", "rb");
@@ -148,15 +177,15 @@ static void *video_thread(void *data) {
 
     while (os_event_try(plugin->stop_signal) == EAGAIN) {
         if (!feof(fp)) {
-            // test_image(&plugin->obs_video_frame, 320);
-            // plugin->obs_video_frame.timestamp = (cur_time += (NANOSECONDS/FPS));
-            // obs_source_output_video2(plugin->source, &plugin->obs_video_frame);
-            do_video_frame(fp, plugin);
+            test_image(&plugin->obs_video_frame, 320);
+            plugin->obs_video_frame.timestamp = (cur_time += (NANO_SEC/FPS));
+            obs_source_output_video2(plugin->source, &plugin->obs_video_frame);
+            // do_video_frame(fp, plugin);
         } else {
             rewind(fp);
         }
 
-        os_sleep_ms(MILLISECONDS / FPS);
+        os_sleep_ms(MILLI_SEC / FPS);
     }
 
     fclose(fp);
@@ -168,20 +197,24 @@ static uint64_t do_audio_frame(FILE *fp, struct droidcam_obs_plugin *plugin) {
     uint64_t pts;
     struct ffmpeg_decode *decoder = &plugin->audio_decoder;
 
+    int len = read_frame(fp, decoder, &pts);
+    if (len == 0)
+        return 0;
+
     if (ffmpeg_decode_valid(decoder) && decoder->codec->id != AV_CODEC_ID_AAC) {
         ffmpeg_decode_free(decoder);
     }
 
     if (!ffmpeg_decode_valid(decoder)) {
-        if (ffmpeg_decode_init(decoder, AV_CODEC_ID_AAC, false) < 0) {
+        // XXX need to read (and store?) initial header and not try to decode it
+        // aac header parsing seems buggy in ffmpeg
+        if (ffmpeg_decode_init_audio(decoder, decoder->packet_buffer, AV_CODEC_ID_AAC) < 0) {
             elog("could not initialize audio decoder");
             return 0;
         }
-    }
 
-    int len = read_frame(fp, decoder, &pts);
-    if (len == 0)
         return 0;
+    }
 
     bool got_output;
     if (!ffmpeg_decode_audio(decoder, &plugin->obs_audio_frame, &got_output, len)) {
@@ -200,14 +233,14 @@ static uint64_t do_audio_frame(FILE *fp, struct droidcam_obs_plugin *plugin) {
             plugin->obs_audio_frame.timestamp);
 #endif
         obs_source_output_audio(plugin->source, &plugin->obs_audio_frame);
-        return ((uint64_t)plugin->obs_audio_frame.frames * MILLISECONDS / (uint64_t)plugin->obs_audio_frame.samples_per_sec);
+        return ((uint64_t)plugin->obs_audio_frame.frames * MILLI_SEC / (uint64_t)plugin->obs_audio_frame.samples_per_sec);
     }
 
     return 0;
 }
 
 static void *audio_thread(void *data) {
-    struct droidcam_obs_plugin *plugin = data;
+    droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
     uint64_t duration;
 
     FILE *fp = fopen("/home/user/dev/droidcam-obs/rec.aac", "rb");
@@ -224,7 +257,7 @@ static void *audio_thread(void *data) {
             duration = 0;
         }
         if (duration == 0)
-            duration = MILLISECONDS;
+            duration = MILLI_SEC;
 
         os_sleep_ms(duration);
     }
@@ -233,8 +266,28 @@ static void *audio_thread(void *data) {
     return NULL;
 }
 
+static void *worker_thread(void *data) {
+    droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
+
+    while (os_event_try(plugin->stop_signal) == EAGAIN) {
+        Action action = plugin->next_action();
+        switch (action) {
+            case Action::None:
+                break;
+            case Action::Activate:
+                dlog("Got Activate action");
+                break;
+            default:;
+        }
+
+        os_sleep_ms(MILLI_SEC);
+    }
+
+    return NULL;
+}
+
 static void plugin_destroy(void *data) {
-    struct droidcam_obs_plugin *plugin = data;
+    droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
 
     if (plugin) {
         if (plugin->time_start != 0) {
@@ -242,6 +295,7 @@ static void plugin_destroy(void *data) {
             os_event_signal(plugin->stop_signal);
             pthread_join(plugin->video_thread, NULL);
             pthread_join(plugin->audio_thread, NULL);
+            pthread_join(plugin->worker_thread, NULL);
         }
 
         dlog("cleanup");
@@ -253,15 +307,15 @@ static void plugin_destroy(void *data) {
         if (ffmpeg_decode_valid(&plugin->audio_decoder))
             ffmpeg_decode_free(&plugin->audio_decoder);
 
-        bfree(plugin);
+        delete plugin;
     }
 }
 
 static void *plugin_create(obs_data_t *settings, obs_source_t *source) {
-    struct droidcam_obs_plugin *plugin = bzalloc(sizeof(struct droidcam_obs_plugin));
-    plugin->source = source;
+    dlog("create(source=%p)", source);
 
-    dlog("plugin_create: FIXME - test multiple instances")
+    droidcam_obs_plugin *plugin = new droidcam_obs_plugin();
+    plugin->source = source;
 
     // FIXME need this?
     //obs_source_set_async_unbuffered(source, true);
@@ -277,7 +331,12 @@ static void *plugin_create(obs_data_t *settings, obs_source_t *source) {
         return NULL;
     }
 
-    if (pthread_create(&plugin->audio_thread, NULL, audio_thread, plugin) != 0) {
+    // if (pthread_create(&plugin->audio_thread, NULL, audio_thread, plugin) != 0) {
+    //     plugin_destroy(plugin);
+    //     return NULL;
+    // }
+
+    if (pthread_create(&plugin->worker_thread, NULL, worker_thread, plugin) != 0) {
         plugin_destroy(plugin);
         return NULL;
     }
@@ -288,15 +347,15 @@ static void *plugin_create(obs_data_t *settings, obs_source_t *source) {
     return plugin;
 }
 
-static const char *plugin_getname(void *unused) {
-    UNUSED_PARAMETER(unused);
+static const char *plugin_getname(void *x) {
+    UNUSED_PARAMETER(x);
     return obs_module_text("PluginName");
 }
 
 struct obs_source_info droidcam_obs_info = {
     .id = "droidcam_obs",
     .type = OBS_SOURCE_TYPE_INPUT,
-    .output_flags = OBS_SOURCE_DO_NOT_DUPLICATE | OBS_SOURCE_ASYNC_VIDEO | OBS_SOURCE_AUDIO,
+    .output_flags = OBS_SOURCE_DO_NOT_DUPLICATE | OBS_SOURCE_AUDIO | OBS_SOURCE_ASYNC_VIDEO,
     .get_name = plugin_getname,
     .create = plugin_create,
     .destroy = plugin_destroy,

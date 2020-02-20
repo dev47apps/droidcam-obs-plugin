@@ -31,9 +31,6 @@ enum AVHWDeviceType hw_priority[] = {
 	AV_HWDEVICE_TYPE_NONE,
 };
 
-// https://wiki.multimedia.cx/index.php/MPEG-4_Audio
-static int aac_frequencies[] = {96000,88200,64000,48000,44100,32000,24000,22050,16000,12000,11025,8000};
-
 static bool has_hw_type(AVCodec *c, enum AVHWDeviceType type)
 {
 	for (int i = 0;; i++) {
@@ -70,7 +67,7 @@ static void init_hw_decoder(struct ffmpeg_decode *d)
 }
 #endif
 
-int ffmpeg_decode_init(struct ffmpeg_decode *decode, enum AVCodecID id, bool use_hw)
+int ffmpeg_decode_init(struct ffmpeg_decode *decode, uint8_t* header, enum AVCodecID id, bool use_hw)
 {
 	int ret;
 
@@ -89,13 +86,21 @@ int ffmpeg_decode_init(struct ffmpeg_decode *decode, enum AVCodecID id, bool use
 
 	decode->decoder->thread_count = 0;
 	if (id == AV_CODEC_ID_AAC) {
-		char header[] = {0x12, 0x08};
+		// https://wiki.multimedia.cx/index.php/MPEG-4_Audio
+		static int aac_frequencies[] = {96000,88200,64000,48000,44100,32000,24000,22050,16000,12000,11025,8000};
+
+		if (!header) {
+			blog(LOG_ERROR, "missing AAC header required to init decoder");
+			return -1;
+		}
+
 		int sr_idx = ((header[0] << 1) | (header[1] >> 7)) & 0x1F;
-		blog(LOG_ERROR, "src_idx=%d", sr_idx);
+		if (sr_idx < 0 || sr_idx >= (int)(sizeof(aac_frequencies) / sizeof(int))) {
+			blog(LOG_ERROR, "failed to parse AAC header, sr_idx=%d", sr_idx);
+			return -1;
+		}
 
-		 data->frames_per_second = sample_rates[sr_idx] / 1024.f;
-
-		decode->decoder->sample_rate = 44100;
+		decode->decoder->sample_rate = aac_frequencies[sr_idx];
 		decode->decoder->profile = FF_PROFILE_AAC_LOW;
 		decode->decoder->channel_layout = AV_CH_LAYOUT_MONO;
 		decode->decoder->channels = 1;
@@ -217,8 +222,8 @@ uint8_t* ffmpeg_decode_get_buffer(struct ffmpeg_decode *decode, int size)
 {
 	int new_size = size + INPUT_BUFFER_PADDING_SIZE;
 
-	if (decode->packet_size < new_size) {
-		decode->packet_buffer = brealloc(decode->packet_buffer, new_size);
+	if (decode->packet_size < (size_t)new_size) {
+		decode->packet_buffer = (uint8_t*)brealloc(decode->packet_buffer, new_size);
 		decode->packet_size   = new_size;
 	}
 
@@ -351,7 +356,6 @@ bool ffmpeg_decode_audio(struct ffmpeg_decode *decode, struct obs_source_audio *
 		ret = 0;
 
 	if (ret < 0) {
-		blog(LOG_ERROR, "avcodec_send_packet: %s", av_make_error_string(packet.data, packet.size, ret));
 		return false;
 	}
 	else if (!got_frame)
