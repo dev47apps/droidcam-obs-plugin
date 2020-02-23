@@ -25,6 +25,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "ffmpeg_decode.h"
 #include "plugin.h"
 #include "buffer_util.h"
+#include "adb_command.h"
 
 #define FPS 10
 #define MILLI_SEC 1000
@@ -50,12 +51,12 @@ struct droidcam_obs_plugin {
     uint64_t time_start;
 
     std::mutex actions_lock;
-    vector<Action> actions;
+    std::vector<Action> actions;
 
     inline void add_action(Action action) {
         actions_lock.lock();
         actions.push_back(action);
-        m.unlock();
+        actions_lock.unlock();
     }
 
     inline Action next_action(void) {
@@ -74,8 +75,8 @@ struct droidcam_obs_plugin {
 static int read_frame(FILE *fp, struct ffmpeg_decode *decoder, uint64_t *pts) {
     uint8_t header[HEADER_SIZE];
     uint8_t config[MAXCONFIG];
-    ssize_t r;
-    int len, config_len = 0;
+    size_t r;
+    size_t len, config_len = 0;
 
 AGAIN:
     r = fread(header, 1, HEADER_SIZE, fp);
@@ -98,7 +99,7 @@ AGAIN:
         }
 
         if (len > MAXCONFIG) {
-            elog("config packet too large at %d!", len);
+            elog("config packet too large at %ld!", len);
             return 0;
         }
 
@@ -119,7 +120,7 @@ AGAIN:
 
     r = fread(p, 1, len, fp);
     if (r < len) {
-        dlog("error: read_frame: read %ld bytes wanted %d", r, len);
+        dlog("error: read_frame: read %ld bytes wanted %ld", r, len);
         return 0;
     }
 
@@ -268,6 +269,7 @@ static void *audio_thread(void *data) {
 
 static void *worker_thread(void *data) {
     droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
+    AdbMgr adbMgr;
 
     while (os_event_try(plugin->stop_signal) == EAGAIN) {
         Action action = plugin->next_action();
@@ -276,6 +278,7 @@ static void *worker_thread(void *data) {
                 break;
             case Action::Activate:
                 dlog("Got Activate action");
+                adbMgr.reload();
                 break;
             default:;
         }
@@ -342,6 +345,7 @@ static void *plugin_create(obs_data_t *settings, obs_source_t *source) {
     }
 
     plugin->time_start = os_gettime_ns() / 100;
+    plugin->add_action(Action::Activate); // FIXME test
 
     UNUSED_PARAMETER(settings);
     return plugin;
@@ -352,22 +356,8 @@ static const char *plugin_getname(void *x) {
     return obs_module_text("PluginName");
 }
 
-struct obs_source_info droidcam_obs_info = {
-    .id = "droidcam_obs",
-    .type = OBS_SOURCE_TYPE_INPUT,
-    .output_flags = OBS_SOURCE_DO_NOT_DUPLICATE | OBS_SOURCE_AUDIO | OBS_SOURCE_ASYNC_VIDEO,
-    .get_name = plugin_getname,
-    .create = plugin_create,
-    .destroy = plugin_destroy,
-    .icon_type = OBS_ICON_TYPE_CAMERA,
-/*
-.update = vlcs_update,
-.get_defaults = vlcs_defaults,
-.get_properties = vlcs_properties,
-.activate = vlcs_activate,
-.deactivate = vlcs_deactivate,
-*/
-};
+struct obs_source_info droidcam_obs_info;
+
 OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE("droidcam-obs", "en-US")
 MODULE_EXPORT const char *obs_module_description(void) {
@@ -375,6 +365,22 @@ MODULE_EXPORT const char *obs_module_description(void) {
 }
 
 bool obs_module_load(void) {
+    memset(&droidcam_obs_info, 0, sizeof(struct obs_source_info));
+
+    droidcam_obs_info.id           = "droidcam_obs";
+    droidcam_obs_info.type         = OBS_SOURCE_TYPE_INPUT;
+    droidcam_obs_info.output_flags = OBS_SOURCE_DO_NOT_DUPLICATE | OBS_SOURCE_AUDIO | OBS_SOURCE_ASYNC_VIDEO;
+    droidcam_obs_info.get_name     = plugin_getname;
+    droidcam_obs_info.create       = plugin_create;
+    droidcam_obs_info.destroy      = plugin_destroy;
+    droidcam_obs_info.icon_type    = OBS_ICON_TYPE_CAMERA;
+    /*
+    .update = vlcs_update,
+    .get_defaults = vlcs_defaults,
+    .get_properties = vlcs_properties,
+    .activate = vlcs_activate,
+    .deactivate = vlcs_deactivate,
+    */
     obs_register_source(&droidcam_obs_info);
     return true;
 }

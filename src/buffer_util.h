@@ -4,7 +4,7 @@
 static inline void
 buffer_write16be(uint8_t *buf, uint16_t value) {
     buf[0] = value >> 8;
-    buf[1] = value;
+    buf[1] = (uint8_t)value;
 }
 
 static inline void
@@ -12,7 +12,7 @@ buffer_write32be(uint8_t *buf, uint32_t value) {
     buf[0] = value >> 24;
     buf[1] = value >> 16;
     buf[2] = value >> 8;
-    buf[3] = value;
+    buf[3] = (uint8_t)value;
 }
 
 static inline uint16_t

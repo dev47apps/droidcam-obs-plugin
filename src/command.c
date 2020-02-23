@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -23,31 +24,32 @@ bool process_check_success(process_t proc, const char *name) {
 }
 
 // serialize argv to string "[arg1], [arg2], [arg3]"
-static size_t
+bool
 argv_to_string(const char *const *argv, char *buf, size_t bufsize) {
+    bool truncated = false;
     size_t idx = 0;
-    while (*argv) {
+    while (*argv && !truncated) {
         const char *arg = *argv;
         size_t len = strlen(arg);
-        // count space for "[], ...\0"
-        if (idx + len + 8 >= bufsize) {
-            // not enough space, truncate
-            memcpy(&buf[idx], "...", 3);
-            idx += 3;
-            break;
+
+        if (idx + len + 1 >= bufsize) {
+            truncated = true;
+            len = bufsize - idx - 2;
         }
         memcpy(&buf[idx], arg, len);
         idx += len;
         buf[idx++] = ' ';
         argv++;
     }
+    if (idx > 0) idx--; // overwrite the last space
     buf[idx] = '\0';
-    return idx;
+
+    return truncated;
 }
 
-static void
-print_error(enum process_result err, const char *const argv[]) {
-    char buf[512];
+void
+process_print_error(enum process_result err, const char *const argv[]) {
+    char buf[256];
     switch (err) {
         case PROCESS_ERROR_GENERIC:
             argv_to_string(argv, buf, sizeof(buf));
@@ -64,19 +66,29 @@ print_error(enum process_result err, const char *const argv[]) {
 
 // adb commands
 static const char *adb_exe =
+#ifdef _WIN32
+#ifdef TEST
+    ".\\adb\\adbz.exe";
+#else
+    ".\\adb\\adb.exe";
+#endif /* TEST */
+#else
 #ifdef TEST
     "/tmp/adbz";
-#elif _WIN32
-    ".\\adb\\adb.exe";
 #else
     "adb";
+#endif /* TEST */
 #endif
 
 process_t
 adb_execute(const char *serial, const char *const adb_cmd[], size_t len, char *output, size_t out_size) {
-    const char *cmd[len + 4];
+    const char *cmd[32];
     int i;
     process_t process;
+    if (len > sizeof(cmd)-4) {
+        elog("max 32 command args allowed");
+        return PROCESS_NONE;
+    }
     cmd[0] = adb_exe;
     if (serial) {
         cmd[1] = "-s";
@@ -91,7 +103,7 @@ adb_execute(const char *serial, const char *const adb_cmd[], size_t len, char *o
 
     enum process_result r = cmd_execute(cmd[0], cmd, &process, output, out_size);
     if (r != PROCESS_SUCCESS) {
-        print_error(r, cmd);
+        process_print_error(r, cmd);
         return PROCESS_NONE;
     }
     return process;
@@ -130,11 +142,11 @@ bool AdbMgr::reload(void) {
         return false;
     }
 
-    int i = 0, len;
+    size_t i = 0, len;
     char *n, *sep;
     char *p = strtok_r(buf, "\n", &n);
     do {
-        dlog("> %s", p);
+        dlog(": %s", p);
         if (strstr(p, "List of") != NULL){
             continue;
         }

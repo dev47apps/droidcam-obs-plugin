@@ -12,8 +12,13 @@
 enum process_result
 cmd_execute(const char *path, const char *const argv[], pid_t *pid, char* out, size_t out_size) {
     int fd[2];
-    int scratch[256];
+    char scratch[256];
     enum process_result ret = PROCESS_SUCCESS;
+
+#ifdef TEST
+    argv_to_string(argv, scratch, sizeof(scratch));
+    dlog("exec %s", scratch);
+#endif
 
     if (pipe(fd) == -1) {
         elog("pipe: %s", strerror(errno));
@@ -34,7 +39,7 @@ cmd_execute(const char *path, const char *const argv[], pid_t *pid, char* out, s
         int n;
         if (out != NULL && out_size > 2) {
             n = read(fd[0], out, out_size - 1);
-            if (n < 0 || n > (out_size-1)) {
+            if (n < 0 || n >= out_size) {
                 elog("parent read: %s", strerror(errno));
                 ret = PROCESS_ERROR_GENERIC;
                 goto end;

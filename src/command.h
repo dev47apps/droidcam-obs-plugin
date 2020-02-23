@@ -11,6 +11,7 @@
 # include <windows.h>
 
 # define strtok_r strtok_s
+# define snprintf sprintf_s
 # define PATH_SEPARATOR '\\'
 # define PRIexitcode "lu"
 // <https://stackoverflow.com/a/44383330/1987178>
@@ -46,10 +47,8 @@ enum process_result {
 enum process_result cmd_execute(const char *path, const char *const argv[], process_t *handle, char* output, size_t out_size);
 
 bool cmd_simple_wait(process_t pid, exit_code_t *exit_code);
+bool argv_to_string(const char *const *argv, char *buf, size_t bufsize);
 bool process_check_success(process_t proc, const char *name);
-
-process_t adb_devices(void);
-process_t adb_forward(const char *serial, int local_port, int remote_port);
-process_t adb_forward_remove(const char *serial, int local_port);
+void process_print_error(enum process_result err, const char *const argv[]);
 
 #endif
