@@ -12,10 +12,14 @@ struct AdbDevice {
 };
 
 struct AdbMgr {
+    int iter;
     AdbDevice* deviceList[DEVICES_LIMIT];
     AdbMgr();
     ~AdbMgr();
-    bool reload(void);
+    bool Reload(void);
+
+    inline void ResetIter(void){ iter = 0; }
+    AdbDevice* NextDevice(int *is_offline);
 };
 
 #endif

@@ -1,6 +1,7 @@
 #ifndef COMMAND_H
 #define COMMAND_H
 
+#include "plugin.h"
 #include <stdbool.h>
 #include <inttypes.h>
 

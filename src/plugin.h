@@ -15,6 +15,5 @@
 #define ARRAY_LEN(a) (sizeof(a) / sizeof(a[0]))
 #define FREE_OBJECT(obj, free_func) if(obj){dlog(" " #obj " %p\n", obj); free_func(obj); obj=NULL;}
 
-void test_image(struct obs_source_frame2 *frame, int size);
 
 #endif

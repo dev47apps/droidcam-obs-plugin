@@ -2,12 +2,12 @@
 #define _DEFAULT_SOURCE
 
 #include "command.h"
-#include "plugin.h"
 
 #include <errno.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+#include <sys/wait.h>
 
 enum process_result
 cmd_execute(const char *path, const char *const argv[], pid_t *pid, char* out, size_t out_size) {
@@ -36,7 +36,7 @@ cmd_execute(const char *path, const char *const argv[], pid_t *pid, char* out, s
         // parent close write side
         close(fd[1]); fd[1] = -1;
 
-        int n;
+        size_t n;
         if (out != NULL && out_size > 2) {
             n = read(fd[0], out, out_size - 1);
             if (n < 0 || n >= out_size) {

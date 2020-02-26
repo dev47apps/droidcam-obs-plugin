@@ -16,11 +16,10 @@
 	along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include "plugin.h"
 #include "ffmpeg_decode.h"
 #include <obs-ffmpeg-compat.h>
 #include <obs-avc.h>
-
-#include "plugin.h"
 
 #if LIBAVCODEC_VERSION_INT > AV_VERSION_INT(58, 4, 100)
 #define USE_NEW_HARDWARE_CODEC_METHOD

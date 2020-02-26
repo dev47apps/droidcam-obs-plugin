@@ -22,8 +22,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <vector>
 #include <mutex>
 
-#include "ffmpeg_decode.h"
 #include "plugin.h"
+#include "plugin_properties.h"
+#include "ffmpeg_decode.h"
 #include "buffer_util.h"
 #include "adb_command.h"
 
@@ -44,6 +45,8 @@ struct droidcam_obs_plugin {
     pthread_t video_thread;
     pthread_t worker_thread;
     enum video_range_type range;
+    bool deactivateWNS;
+    bool running;
     struct obs_source_audio obs_audio_frame;
     struct obs_source_frame2 obs_video_frame;
     struct ffmpeg_decode video_decoder;
@@ -69,7 +72,43 @@ struct droidcam_obs_plugin {
         }
         return action;
     }
+
+    inline void Connect(void) {
+        running = true;
+    }
+
+    inline void Stop(void) {
+        running = false;
+    }
 };
+
+static void test_image(struct obs_source_frame2 *frame, size_t size) {
+    size_t y, x;
+    uint8_t *pixels = (uint8_t *)malloc(size * size * 4);
+    if (!pixels) return;
+
+    frame->data[0] = pixels;
+    frame->linesize[0] = size * 4;
+    frame->format = VIDEO_FORMAT_BGRX;
+    frame->width = size;
+    frame->height = size;
+
+    uint8_t *p = pixels;
+    for (y = 0; y < size; y++) {
+        for (x = 0; x < size/4; x++) {
+            *p++ = 0; *p++ = 0; *p++ = 0xFF; p++;
+        }
+        for (x = 0; x < size/4; x++) {
+            *p++ = 0; *p++ = 0xFF; *p++ = 0; p++;
+        }
+        for (x = 0; x < size/4; x++) {
+            *p++ = 0xFF; *p++ = 0; *p++ = 0; p++;
+        }
+        for (x = 0; x < size/4; x++) {
+            *p++ = 0x80; *p++ = 0x80; *p++ = 0x80; p++;
+        }
+    }
+}
 
 #define MAXCONFIG 1024
 static int read_frame(FILE *fp, struct ffmpeg_decode *decoder, uint64_t *pts) {
@@ -269,7 +308,7 @@ static void *audio_thread(void *data) {
 
 static void *worker_thread(void *data) {
     droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
-    AdbMgr adbMgr;
+
 
     while (os_event_try(plugin->stop_signal) == EAGAIN) {
         Action action = plugin->next_action();
@@ -278,7 +317,6 @@ static void *worker_thread(void *data) {
                 break;
             case Action::Activate:
                 dlog("Got Activate action");
-                adbMgr.reload();
                 break;
             default:;
         }
@@ -319,6 +357,10 @@ static void *plugin_create(obs_data_t *settings, obs_source_t *source) {
 
     droidcam_obs_plugin *plugin = new droidcam_obs_plugin();
     plugin->source = source;
+    plugin->deactivateWNS = obs_data_get_bool(settings, OPT_DEACTIVATE_WNS);
+
+    //obs_data_t *settings = obs_source_get_settings(plugin->source);
+    //obs_data_release(settings);
 
     // FIXME need this?
     //obs_source_set_async_unbuffered(source, true);
@@ -345,10 +387,87 @@ static void *plugin_create(obs_data_t *settings, obs_source_t *source) {
     }
 
     plugin->time_start = os_gettime_ns() / 100;
-    plugin->add_action(Action::Activate); // FIXME test
+    bool showing = obs_source_showing(source);
+    if (showing || !plugin->deactivateWNS)
+        plugin->add_action(Action::Activate); // FIXME test
+    else
+        dlog("source not showing");
 
-    UNUSED_PARAMETER(settings);
     return plugin;
+}
+
+static void plugin_show(void *data) {
+    dlog("show()");
+}
+
+static void plugin_hide(void *data) {
+    dlog("hide()");
+}
+
+static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *data) {
+    droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
+
+    if (plugin->running) {
+        plugin->Stop();
+        obs_property_set_description(p, TEXT_CONNECT);
+    } else {
+        plugin->Connect();
+        obs_property_set_description(p, TEXT_DEACTIVATE);
+    }
+
+    os_sleep_ms(MILLI_SEC * 2);
+    return true;
+}
+
+static bool refresh_clicked(obs_properties_t *ppts, obs_property_t *p, void *data) {
+    UNUSED_PARAMETER(data);
+    obs_property_t *cp = obs_properties_get(ppts, OPT_CONNECT);
+    int is_offline;
+    AdbDevice* dev;
+    obs_property_set_enabled(cp, false);
+
+    p = obs_properties_get(ppts, OPT_DEVICE_LIST);
+    obs_property_list_clear(p);
+    obs_property_list_add_string(p, TEXT_USE_WIFI, OPT_DEVICE_ID_WIFI);
+
+    AdbMgr adbMgr;
+    adbMgr.Reload();
+    adbMgr.ResetIter();
+    while ((dev = adbMgr.NextDevice(&is_offline)) != NULL) {
+        size_t idx = obs_property_list_add_string(p, dev->serial, dev->serial);
+        if (is_offline)
+            obs_property_list_item_disable(p, idx, true);
+    }
+
+    obs_property_set_enabled(cp, true);
+    return true;
+}
+
+
+static obs_properties_t *plugin_properties(void *data) {
+    droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
+    obs_property_t *p;
+    obs_properties_t *ppts = obs_properties_create();
+
+    obs_properties_add_button(ppts, OPT_REFRESH, TEXT_REFRESH, refresh_clicked);
+
+    p = obs_properties_add_list(ppts, OPT_DEVICE_LIST, TEXT_DEVICE, OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
+
+    obs_properties_add_text(ppts, OPT_CONNECT_IP, "WiFi IP", OBS_TEXT_DEFAULT);
+    obs_properties_add_text(ppts, OPT_CONNECT_PORT, "DroidCam Port", OBS_TEXT_DEFAULT);
+
+    obs_properties_add_button(ppts, OPT_CONNECT, TEXT_CONNECT, connect_clicked);
+
+    // obs_properties_add_bool(ppts, OPT_DEACTIVATE_WNS, TEXT_DWNS);
+
+    refresh_clicked(ppts, NULL, NULL);
+    return ppts;
+}
+
+static void plugin_defaults(obs_data_t *settings) {
+    obs_data_set_default_bool(settings, OPT_DEACTIVATE_WNS, false);
+    obs_data_set_default_string(settings, OPT_RESOLUTION, "720p");
+    obs_data_set_default_int(settings, OPT_CONNECT_PORT, 1212);
 }
 
 static const char *plugin_getname(void *x) {
@@ -361,7 +480,7 @@ struct obs_source_info droidcam_obs_info;
 OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE("droidcam-obs", "en-US")
 MODULE_EXPORT const char *obs_module_description(void) {
-    return "Android camera source";
+    return "Android and iOS camera source";
 }
 
 bool obs_module_load(void) {
@@ -373,14 +492,11 @@ bool obs_module_load(void) {
     droidcam_obs_info.get_name     = plugin_getname;
     droidcam_obs_info.create       = plugin_create;
     droidcam_obs_info.destroy      = plugin_destroy;
+    droidcam_obs_info.show         = plugin_show;
+    droidcam_obs_info.hide         = plugin_hide;
     droidcam_obs_info.icon_type    = OBS_ICON_TYPE_CAMERA;
-    /*
-    .update = vlcs_update,
-    .get_defaults = vlcs_defaults,
-    .get_properties = vlcs_properties,
-    .activate = vlcs_activate,
-    .deactivate = vlcs_deactivate,
-    */
+    droidcam_obs_info.get_defaults = plugin_defaults;
+    droidcam_obs_info.get_properties = plugin_properties;
     obs_register_source(&droidcam_obs_info);
     return true;
 }

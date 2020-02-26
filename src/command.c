@@ -2,7 +2,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "plugin.h"
 #include "command.h"
 #include "adb_command.h"
 
@@ -112,6 +111,10 @@ adb_execute(const char *serial, const char *const adb_cmd[], size_t len, char *o
 AdbMgr::AdbMgr() {
     int i = 0;
     for (; i < DEVICES_LIMIT; i++) deviceList[i] = NULL;
+
+    const char *ss[] = {"start-server"};
+    proc = adb_execute(NULL, ss, ARRAY_LEN(ss), NULL, 0);
+    process_check_success(proc, "adb start-server");
 }
 
 AdbMgr::~AdbMgr() {
@@ -119,16 +122,10 @@ AdbMgr::~AdbMgr() {
     for (; i < DEVICES_LIMIT; i++) if(deviceList[i]) delete deviceList[i];
 }
 
-bool AdbMgr::reload(void) {
+bool AdbMgr::Reload(void) {
     char buf[1024];
     AdbDevice dev;
     process_t proc;
-
-    const char *ss[] = {"start-server"};
-    proc = adb_execute(NULL, ss, ARRAY_LEN(ss), NULL, 0);
-    if (!process_check_success(proc, "adb s.s.")) {
-        return false;
-    }
 
     const char *ro[] = {"reconnect", "offline"};
     proc = adb_execute(NULL, ro, ARRAY_LEN(ro), NULL, 0);
@@ -183,13 +180,27 @@ bool AdbMgr::reload(void) {
         if (++i == DEVICES_LIMIT) break;
     } while ((p = strtok_r(NULL, "\n", &n)) != NULL);
 
-    for (i = 0; i < DEVICES_LIMIT; i++) {
-        if (!deviceList[i]) break;
-        dlog("dev %d: serial=%s (%lu) state=%s (%lu)", i,
-            deviceList[i]->serial, strlen(deviceList[i]->serial),
-            deviceList[i]->state, strlen(deviceList[i]->state));
-    }
     return true;
+}
+
+AdbDevice* AdbMgr::NextDevice(int *is_offline) {
+    AdbDevice* dev = NULL;
+    const char* offline = "offline";
+
+    if (iter >= DEVICES_LIMIT) iter = 0;
+
+    if (deviceList[iter]) {
+        if (memcmp(offline, deviceList[iter]->state, sizeof(offline)-1) == 0) {
+            dlog("device %s is offline", deviceList[iter]->serial);
+            *is_offline = 1;
+        } else {
+            *is_offline = 0;
+        }
+
+        dev = deviceList[iter];
+        iter++;
+    }
+    return 0;
 }
 
 process_t
