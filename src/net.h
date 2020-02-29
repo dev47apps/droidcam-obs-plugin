@@ -20,20 +20,23 @@ bool net_init(void);
 void net_cleanup(void);
 
 socket_t
+net_connect_and_ping(const char* ip, uint16_t port);
+
+socket_t
 net_connect(const char* ip, uint16_t port);
 
 ssize_t
-net_recv(socket_t socket, void *buf, size_t len);
+net_recv(socket_t sock, void *buf, size_t len);
 
 ssize_t
-net_recv_all(socket_t socket, void *buf, size_t len);
+net_recv_all(socket_t sock, void *buf, size_t len);
 
 ssize_t
-net_send(socket_t socket, const void *buf, size_t len);
+net_send(socket_t sock, const void *buf, size_t len);
 
 ssize_t
-net_send_all(socket_t socket, const void *buf, size_t len);
+net_send_all(socket_t sock, const void *buf, size_t len);
 
 bool
-net_close(socket_t socket);
+net_close(socket_t sock);
 #endif

@@ -2,6 +2,9 @@
 #ifndef __ADB_CMD_H__
 #define __ADB_CMD_H__
 
+#define ADB_PREFIX     "adb-"
+#define ADB_PREFIX_LEN (sizeof(ADB_PREFIX)-1)
+
 #define DEVICES_LIMIT 8
 
 struct AdbDevice {
@@ -21,5 +24,7 @@ struct AdbMgr {
     inline void ResetIter(void){ iter = 0; }
     AdbDevice* NextDevice(int *is_offline);
 };
+
+bool adb_forward(const char *serial, int local_port, int remote_port);
 
 #endif

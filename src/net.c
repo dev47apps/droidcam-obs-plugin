@@ -1,6 +1,7 @@
 #include <errno.h>
 #include <string.h>
 #include "plugin.h"
+#include "plugin_properties.h"
 #include "net.h"
 
 #ifdef __WINDOWS__
@@ -16,6 +17,36 @@
   typedef struct sockaddr SOCKADDR;
   typedef struct in_addr IN_ADDR;
 #endif
+
+socket_t
+net_connect_and_ping(const char* ip, uint16_t port) {
+    int len;
+    char buf[8];
+    const char *ping_req = PING_REQ;
+
+    socket_t sock = net_connect(ip, port);
+    if (sock == INVALID_SOCKET) {
+        return INVALID_SOCKET;
+    }
+    if ((len = net_send_all(sock, ping_req, sizeof(PING_REQ)-1)) <= 0) {
+        elog("send(ping) failed");
+        net_close(sock);
+        return INVALID_SOCKET;
+    }
+
+    if ((len = net_recv(sock, buf, sizeof(buf))) <= 0) {
+        elog("recv(ping) failed");
+        net_close(sock);
+        return INVALID_SOCKET;
+    }
+
+    if (len != 4 || memcmp(buf, "pong", 4) != 0) {
+        elog("recv invalid data: %.*s", len, buf);
+        net_close(sock);
+        return INVALID_SOCKET;
+    }
+    return sock;
+}
 
 socket_t
 net_connect(const char* ip, uint16_t port) {
@@ -41,25 +72,25 @@ net_connect(const char* ip, uint16_t port) {
 }
 
 ssize_t
-net_recv(socket_t socket, void *buf, size_t len) {
-    return recv(socket, buf, len, 0);
+net_recv(socket_t sock, void *buf, size_t len) {
+    return recv(sock, buf, len, 0);
 }
 
 ssize_t
-net_recv_all(socket_t socket, void *buf, size_t len) {
-    return recv(socket, buf, len, MSG_WAITALL);
+net_recv_all(socket_t sock, void *buf, size_t len) {
+    return recv(sock, buf, len, MSG_WAITALL);
 }
 
 ssize_t
-net_send(socket_t socket, const void *buf, size_t len) {
-    return send(socket, buf, len, 0);
+net_send(socket_t sock, const void *buf, size_t len) {
+    return send(sock, buf, len, 0);
 }
 
 ssize_t
-net_send_all(socket_t socket, const void *buf, size_t len) {
+net_send_all(socket_t sock, const void *buf, size_t len) {
     ssize_t w = 0;
     while (len > 0) {
-        w = send(socket, buf, len, 0);
+        w = send(sock, buf, len, 0);
         if (w == -1) {
             return -1;
         }
@@ -70,13 +101,13 @@ net_send_all(socket_t socket, const void *buf, size_t len) {
 }
 
 bool
-net_close(socket_t socket)
+net_close(socket_t sock)
 {
-    shutdown(socket, SHUT_RDWR);
+    shutdown(sock, SHUT_RDWR);
 #ifdef __WINDOWS__
-    return !closesocket(socket);
+    return !closesocket(sock);
 #else
-    return !close(socket);
+    return !close(sock);
 }
 #endif
 

@@ -69,13 +69,10 @@ static void init_hw_decoder(struct ffmpeg_decode *d)
 int ffmpeg_decode_init(struct ffmpeg_decode *decode, uint8_t* header, enum AVCodecID id, bool use_hw)
 {
 	int ret;
-
-	av_log_set_level(AV_LOG_WARNING);
-
+	// av_log_set_level(AV_LOG_DEBUG);
 #if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(58, 9, 100)
 	error// avcodec_register_all();
 #endif
-	memset(decode, 0, sizeof(*decode));
 
 	decode->codec = avcodec_find_decoder(id);
 	if (!decode->codec)
@@ -103,6 +100,7 @@ int ffmpeg_decode_init(struct ffmpeg_decode *decode, uint8_t* header, enum AVCod
 		decode->decoder->profile = FF_PROFILE_AAC_LOW;
 		decode->decoder->channel_layout = AV_CH_LAYOUT_MONO;
 		decode->decoder->channels = 1;
+		dlog("audio sample_rate=%d", decode->decoder->sample_rate);
 	}
 
 #ifdef USE_NEW_HARDWARE_CODEC_METHOD

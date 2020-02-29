@@ -113,7 +113,7 @@ AdbMgr::AdbMgr() {
     for (; i < DEVICES_LIMIT; i++) deviceList[i] = NULL;
 
     const char *ss[] = {"start-server"};
-    proc = adb_execute(NULL, ss, ARRAY_LEN(ss), NULL, 0);
+    process_t proc = adb_execute(NULL, ss, ARRAY_LEN(ss), NULL, 0);
     process_check_success(proc, "adb start-server");
 }
 
@@ -184,7 +184,6 @@ bool AdbMgr::Reload(void) {
 }
 
 AdbDevice* AdbMgr::NextDevice(int *is_offline) {
-    AdbDevice* dev = NULL;
     const char* offline = "offline";
 
     if (iter >= DEVICES_LIMIT) iter = 0;
@@ -197,30 +196,22 @@ AdbDevice* AdbMgr::NextDevice(int *is_offline) {
             *is_offline = 0;
         }
 
-        dev = deviceList[iter];
+        AdbDevice* dev = deviceList[iter];
         iter++;
+        return dev;
     }
     return 0;
 }
 
-process_t
+bool
 adb_forward(const char *serial, int local_port, int remote_port) {
     char local[32];
     char remote[32];
     snprintf(local, 32, "tcp:%d", local_port);
     snprintf(remote, 32, "tcp:%d", remote_port);
 
-    const char *const adb_cmd[] = {"forward", local, remote};
-    return adb_execute(serial, adb_cmd, ARRAY_LEN(adb_cmd), NULL, 0);
+    const char *const cmd[] = {"forward", local, remote};
+    process_t proc = adb_execute(serial, cmd, ARRAY_LEN(cmd), NULL, 0);
+    return process_check_success(proc, "adb fwd");
 }
-
-process_t
-adb_forward_remove(const char *serial, int local_port) {
-    char local[32];
-    snprintf(local, 32, "tcp:%d", local_port);
-
-    const char *const adb_cmd[] = {"forward", "--remove", local};
-    return adb_execute(serial, adb_cmd, ARRAY_LEN(adb_cmd), NULL, 0);
-}
-
 
