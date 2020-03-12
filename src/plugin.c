@@ -212,6 +212,7 @@ static void *video_thread(void *data) {
                 sock = INVALID_SOCKET;
             }
 
+            obs_source_output_video2(plugin->source, NULL);
             os_sleep_ms(MILLI_SEC / FPS);
         }
 
@@ -305,6 +306,7 @@ static void *audio_thread(void *data) {
                 sock = INVALID_SOCKET;
             }
 
+            obs_source_output_audio(plugin->source, NULL);
             os_sleep_ms(MILLI_SEC / FPS);
         }
 
@@ -422,6 +424,16 @@ static void plugin_hide(void *data) {
     dlog("hide()");
 }
 
+static inline void toggle_ppts(obs_properties_t *ppts, bool enable) {
+    obs_property_set_enabled(obs_properties_get(ppts, OPT_REFRESH)     , enable);
+    obs_property_set_enabled(obs_properties_get(ppts, OPT_DEVICE_LIST) , enable);
+    obs_property_set_enabled(obs_properties_get(ppts, OPT_CONNECT_IP)  , enable);
+    obs_property_set_enabled(obs_properties_get(ppts, OPT_CONNECT_PORT), enable);
+    obs_property_set_enabled(obs_properties_get(ppts, OPT_ENABLE_AUDIO), enable);
+}
+
+static bool refresh_clicked(obs_properties_t *ppts, obs_property_t *p, void *data);
+
 static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *data) {
     const char *ip, *device_id;
     int port;
@@ -429,13 +441,14 @@ static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
 
     droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
     obs_data_t *settings = obs_source_get_settings(plugin->source);
-    obs_property_t *rp = obs_properties_get(ppts, OPT_REFRESH);
-    obs_property_t *dp = obs_properties_get(ppts, OPT_DEVICE_LIST);
-    obs_property_set_enabled(rp, false);
+    obs_property_t *cp = obs_properties_get(ppts, OPT_CONNECT);
+    obs_property_set_enabled(cp, false);
 
     if (plugin->video_running) {
         plugin->stop();
-        obs_property_set_description(p, TEXT_CONNECT);
+        toggle_ppts(ppts, true);
+        obs_property_set_description(cp, TEXT_CONNECT);
+        refresh_clicked(ppts, NULL, data);
         goto out;
     }
 
@@ -460,34 +473,34 @@ static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
         goto out;
     }
     plugin->video_socket_queue.add_item(sock);
-    obs_property_set_description(p, TEXT_DEACTIVATE);
-
+    obs_property_set_description(cp, TEXT_DEACTIVATE);
+    toggle_ppts(ppts, false);
 
     // FIXME audio is optional
-    // FIXME clean this up
+    /* FIXME clean this up
     os_sleep_ms(MILLI_SEC);
     sock = net_connect(ip, port);
     dlog("audio sock = %d", sock);
     if (sock != INVALID_SOCKET) {
         plugin->audio_socket_queue.add_item(sock);
-    }
+    }*/
 
 out:
-    obs_property_set_enabled(dp, true);
-    obs_property_set_enabled(rp, true);
+    obs_property_set_enabled(cp, true);
     if (settings) obs_data_release(settings);
     return true;
 }
 
 static bool refresh_clicked(obs_properties_t *ppts, obs_property_t *p, void *data) {
     UNUSED_PARAMETER(data);
-    obs_property_t *cp = obs_properties_get(ppts, OPT_CONNECT);
     int is_offline;
     AdbDevice* dev;
+    obs_property_t *cp = obs_properties_get(ppts, OPT_CONNECT);
     obs_property_set_enabled(cp, false);
 
     p = obs_properties_get(ppts, OPT_DEVICE_LIST);
     obs_property_list_clear(p);
+    obs_property_list_add_string(p, TEXT_USE_WIFI, OPT_DEVICE_ID_WIFI);
 
     AdbMgr adbMgr;
     adbMgr.Reload();
@@ -504,7 +517,6 @@ static bool refresh_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
             obs_property_list_item_disable(p, idx, true);
     }
 
-    obs_property_list_add_string(p, TEXT_USE_WIFI, OPT_DEVICE_ID_WIFI);
     obs_property_set_enabled(cp, true);
     return true;
 }
@@ -514,33 +526,40 @@ static void plugin_update(void *data, obs_data_t *settings) {
     plugin->deactivateWNS = obs_data_get_bool(settings, OPT_DEACTIVATE_WNS);
 
     bool sync_av = obs_data_get_bool(settings, OPT_SYNC_AV);
-    obs_source_set_async_decoupled(plugin->source, !sync_av);
     dlog("av synced = %d", sync_av);
+    obs_source_set_async_decoupled(plugin->source, !sync_av);
 }
 
 static obs_properties_t *plugin_properties(void *data) {
     droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
     obs_properties_t *ppts = obs_properties_create();
+    obs_property_t *cp;
 
     obs_properties_add_list(ppts, OPT_DEVICE_LIST, TEXT_DEVICE, OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
     obs_properties_add_button(ppts, OPT_REFRESH, TEXT_REFRESH, refresh_clicked);
 
     obs_properties_add_text(ppts, OPT_CONNECT_IP, "WiFi IP", OBS_TEXT_DEFAULT);
     obs_properties_add_int(ppts, OPT_CONNECT_PORT, "DroidCam Port", 1025, 65535, 1);
+    obs_properties_add_bool(ppts, OPT_ENABLE_AUDIO, TEXT_ENABLE_AUDIO);
 
-    // FIXME check if connected !
-    obs_properties_add_button(ppts, OPT_CONNECT, TEXT_CONNECT, connect_clicked);
+    cp = obs_properties_add_button(ppts, OPT_CONNECT, TEXT_CONNECT, connect_clicked);
+    obs_properties_add_bool(ppts, OPT_SYNC_AV, TEXT_SYNC_AV);
+    obs_properties_add_bool(ppts, OPT_DEACTIVATE_WNS, TEXT_DWNS);
 
-    // obs_properties_add_bool(ppts, OPT_DEACTIVATE_WNS, TEXT_DWNS);
+    if (plugin->video_running) {
+        toggle_ppts(ppts, false);
+        obs_property_set_description(cp, TEXT_DEACTIVATE);
+    } else {
+        refresh_clicked(ppts, NULL, NULL);
+    }
 
-    refresh_clicked(ppts, NULL, NULL);
     return ppts;
 }
 
 static void plugin_defaults(obs_data_t *settings) {
     obs_data_set_default_bool(settings, OPT_SYNC_AV, true);
+    obs_data_set_default_bool(settings, OPT_ENABLE_AUDIO, true);
     obs_data_set_default_bool(settings, OPT_DEACTIVATE_WNS, false);
-    obs_data_set_default_string(settings, OPT_RESOLUTION, "720p");
     obs_data_set_default_int(settings, OPT_CONNECT_PORT, 1212);
 }
 
