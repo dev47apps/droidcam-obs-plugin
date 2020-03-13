@@ -45,6 +45,7 @@ struct droidcam_obs_plugin {
     pthread_t worker_thread;
     enum video_range_type range;
     bool deactivateWNS;
+    bool enable_audio;
     bool audio_running;
     bool video_running;
     struct obs_source_audio obs_audio_frame;
@@ -98,7 +99,7 @@ static void test_image(struct obs_source_frame2 *frame, size_t size) {
 #endif
 
 #define MAXCONFIG 1024
-static int read_frame(struct ffmpeg_decode *decoder, socket_t sock, uint64_t *pts) {
+static int read_frame(struct ffmpeg_decode *decoder, uint64_t *pts, socket_t sock, int *has_config) {
     uint8_t header[HEADER_SIZE];
     uint8_t config[MAXCONFIG];
     size_t r;
@@ -135,6 +136,7 @@ AGAIN:
             return 0;
         }
         config_len = len;
+        *has_config = 1;
         goto AGAIN;
     }
 
@@ -158,7 +160,6 @@ do_video_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
     uint64_t pts;
     struct ffmpeg_decode *decoder = &plugin->video_decoder;
 
-    // FIXME move this out and re-set the decoder in between sessions (if needed?)
     if (ffmpeg_decode_valid(decoder) && decoder->codec->id != AV_CODEC_ID_H264) {
         ffmpeg_decode_free(decoder);
     }
@@ -170,7 +171,8 @@ do_video_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
         }
     }
 
-    int len = read_frame(decoder, sock, &pts);
+    int has_config = 0;
+    int len = read_frame(decoder, &pts, sock, &has_config);
     if (len == 0)
         return false;
 
@@ -244,16 +246,15 @@ do_audio_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
     uint64_t pts;
     struct ffmpeg_decode *decoder = &plugin->audio_decoder;
 
-    if (ffmpeg_decode_valid(decoder) && decoder->codec->id != AV_CODEC_ID_AAC) {
-        ffmpeg_decode_free(decoder);
-    }
-
-    // aac header parsing seems buggy in ffmpeg, read ahead and pass the config to init
-    // todo read into separate buffer and avoid the early out below
-    // FIXME this break if stop/start
-    int len = read_frame(decoder, sock, &pts);
+    // aac decoder doesnt like parsing the header, pass to our init
+    int has_config = 0;
+    int len = read_frame(decoder, &pts, sock, &has_config);
     if (len == 0)
         return false;
+
+    if (ffmpeg_decode_valid(decoder) && (decoder->codec->id != AV_CODEC_ID_AAC || has_config == 1)) {
+        ffmpeg_decode_free(decoder);
+    }
 
     if (!ffmpeg_decode_valid(decoder)) {
         if (ffmpeg_decode_init_audio(decoder, decoder->packet_buffer, AV_CODEC_ID_AAC) < 0) {
@@ -261,7 +262,7 @@ do_audio_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
             return false;
         }
 
-        // early out, dont try to decode the config
+        // early out, dont pass config packet to decode
         return true;
     }
 
@@ -291,6 +292,7 @@ do_audio_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
 static void *audio_thread(void *data) {
     droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
     socket_t sock = INVALID_SOCKET;
+    int video_wait_counter;
     const char *audio_req = AUDIO_REQ;
 
     while (os_event_try(plugin->stop_signal) == EAGAIN) {
@@ -314,8 +316,17 @@ static void *audio_thread(void *data) {
         if (s > 0) {
             if (plugin->audio_running) {
                 elog("dropping audio socket %d, already running", s);
+                drop:
                 net_close(s);
             } else {
+                video_wait_counter = 0;
+                while (!plugin->video_running) {
+                    os_sleep_ms(MILLI_SEC / FPS);
+                    if (++video_wait_counter > FPS) {
+                        dlog("audio: waited too long for video to start, dropping socket");
+                        goto drop;
+                    }
+                }
                 if (net_send_all(s, audio_req, sizeof(AUDIO_REQ)-1) <= 0) {
                     elog("send(/audio) failed");
                     net_close(s);
@@ -476,14 +487,12 @@ static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
     obs_property_set_description(cp, TEXT_DEACTIVATE);
     toggle_ppts(ppts, false);
 
-    // FIXME audio is optional
-    /* FIXME clean this up
-    os_sleep_ms(MILLI_SEC);
-    sock = net_connect(ip, port);
-    dlog("audio sock = %d", sock);
-    if (sock != INVALID_SOCKET) {
-        plugin->audio_socket_queue.add_item(sock);
-    }*/
+    if (plugin->enable_audio) {
+        sock = net_connect(ip, port);
+        if (sock != INVALID_SOCKET) {
+            plugin->audio_socket_queue.add_item(sock);
+        }
+    }
 
 out:
     obs_property_set_enabled(cp, true);
@@ -524,6 +533,7 @@ static bool refresh_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
 static void plugin_update(void *data, obs_data_t *settings) {
     droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
     plugin->deactivateWNS = obs_data_get_bool(settings, OPT_DEACTIVATE_WNS);
+    plugin->enable_audio  = obs_data_get_bool(settings, OPT_ENABLE_AUDIO);
 
     bool sync_av = obs_data_get_bool(settings, OPT_SYNC_AV);
     dlog("av synced = %d", sync_av);
