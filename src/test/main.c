@@ -36,8 +36,11 @@ void test_exec(void) {
 
 void test_adb(void) {
     dlog("test_adb()");
+    int offline;
     AdbMgr adbMgr;
     adbMgr.Reload();
+    adbMgr.ResetIter();
+    adbMgr.NextDevice(&offline);
     dlog("~test_adb");
 }
 

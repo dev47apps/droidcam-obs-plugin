@@ -24,7 +24,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "plugin_properties.h"
 #include "ffmpeg_decode.h"
 #include "buffer_util.h"
-#include "adb_command.h"
+#include "usb_util.h"
 #include "net.h"
 
 #define FPS 10
@@ -38,6 +38,8 @@ enum class Action {
 };
 
 struct droidcam_obs_plugin {
+    AdbMgr *adbMgr;
+    USBMux *iosMgr;
     obs_source_t *source;
     os_event_t *stop_signal;
     pthread_t audio_thread;
@@ -63,6 +65,8 @@ struct droidcam_obs_plugin {
         video_running = false;
     }
 };
+
+int adb_port = 7173;
 
 #if 0
 test_image(&plugin->obs_video_frame, 320);
@@ -448,41 +452,92 @@ static bool refresh_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
 static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *data) {
     const char *ip, *device_id;
     int port;
+    int use_wifi = 0;
+    int is_offline;
     socket_t sock;
 
     droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
     obs_data_t *settings = obs_source_get_settings(plugin->source);
     obs_property_t *cp = obs_properties_get(ppts, OPT_CONNECT);
+    AdbDevice* dev;
+    usbmuxd_device_info_t* usbmuxdev;
+
+    AdbMgr* adbMgr = plugin->adbMgr;
+    USBMux* iosMgr = plugin->iosMgr;
+    if (!adbMgr || !iosMgr){
+        elog("unexpected adbMgr==%p, iosMgr==%p in connect_clicked", adbMgr, iosMgr);
+        goto out;
+    }
+
     obs_property_set_enabled(cp, false);
+
+    device_id = obs_data_get_string(settings, OPT_DEVICE_LIST);
+    port = (int) obs_data_get_int(settings, OPT_CONNECT_PORT);
+    if (!device_id)
+        goto out;
+
+    dlog("device id: %s", device_id);
+    if (memcmp(device_id, OPT_DEVICE_ID_WIFI, sizeof(OPT_DEVICE_ID_WIFI)-1) == 0)
+        use_wifi = 1;
 
     if (plugin->video_running) {
         plugin->stop();
         toggle_ppts(ppts, true);
         obs_property_set_description(cp, TEXT_CONNECT);
+        if (!use_wifi)
+            adb_forward_remove_all(device_id);
+
         refresh_clicked(ppts, NULL, data);
         goto out;
     }
 
-    device_id = obs_data_get_string(settings, OPT_DEVICE_LIST);
-    port = (int) obs_data_get_int(settings, OPT_CONNECT_PORT);
-
-    if (memcmp(device_id, OPT_DEVICE_ID_WIFI, sizeof(OPT_DEVICE_ID_WIFI)-1) == 0) {
+    if (use_wifi) {
         ip = obs_data_get_string(settings, OPT_CONNECT_IP);
+        goto CONNECT;
     }
-    else if (memcmp(device_id, ADB_PREFIX, ADB_PREFIX_LEN) == 0) {
-        ip = "127.0.0.1";
-        if (!adb_forward(&device_id[ADB_PREFIX_LEN], port, port)) {
-            // FIXME show dialog?
-            goto out;
+
+    adbMgr->ResetIter();
+    while ((dev = adbMgr->NextDevice(&is_offline)) != NULL) {
+        dlog("checking against serial:%s state:%s\n", dev->serial, dev->state);
+        if (device_id == dev->serial) {
+            if (is_offline) {
+                // FIXME Show error
+                goto out;
+            }
+
+            dlog("ADB: mapping %d -> %d\n", adb_port, port);
+            if (!adb_forward(dev->serial, adb_port++, port)) {
+                // FIXME show error
+                goto out;
+            }
+
+            ip = "127.0.0.1";
+            goto CONNECT;
         }
     }
 
+    iosMgr->ResetIter();
+    while ((usbmuxdev = iosMgr->NextDevice()) != NULL) {
+        dlog("checking against serial:%s\n", usbmuxdev->udid);
+        if (device_id == usbmuxdev->udid) {
+            sock = iosMgr->Connect(iosMgr->iter - 1, port);
+            goto AFTER_CONNECT;
+        }
+    }
+
+    // FIXME show error
+    goto out;
+
+CONNECT:
     sock = net_connect(ip, port);
+
+AFTER_CONNECT:
     if (sock == INVALID_SOCKET) {
         elog("connect failed");
         // FIXME show dialog?
         goto out;
     }
+
     plugin->video_socket_queue.add_item(sock);
     obs_property_set_description(cp, TEXT_DEACTIVATE);
     toggle_ppts(ppts, false);
@@ -501,9 +556,10 @@ out:
 }
 
 static bool refresh_clicked(obs_properties_t *ppts, obs_property_t *p, void *data) {
-    UNUSED_PARAMETER(data);
+    droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
     int is_offline;
     AdbDevice* dev;
+    AdbMgr *adbMgr = plugin->adbMgr;
     obs_property_t *cp = obs_properties_get(ppts, OPT_CONNECT);
     obs_property_set_enabled(cp, false);
 
@@ -511,17 +567,15 @@ static bool refresh_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
     obs_property_list_clear(p);
     obs_property_list_add_string(p, TEXT_USE_WIFI, OPT_DEVICE_ID_WIFI);
 
-    AdbMgr adbMgr;
-    adbMgr.Reload();
-    adbMgr.ResetIter();
-    while ((dev = adbMgr.NextDevice(&is_offline)) != NULL) {
-        char serial[sizeof(dev->serial) + ADB_PREFIX_LEN + 1];
-
-        memcpy(serial, ADB_PREFIX, ADB_PREFIX_LEN);
-        memcpy(&serial[ADB_PREFIX_LEN], dev->serial, sizeof(dev->serial));
-        serial[sizeof(dev->serial) + ADB_PREFIX_LEN] = 0;
-
-        size_t idx = obs_property_list_add_string(p, serial, serial);
+    if (!adbMgr) {
+        adbMgr = new AdbMgr();
+        plugin->adbMgr = adbMgr;
+    }
+    adbMgr->Reload();
+    adbMgr->ResetIter();
+    while ((dev = adbMgr->NextDevice(&is_offline)) != NULL) {
+        char *label = dev->model[0] != 0 ? dev->model : dev->serial;
+        size_t idx = obs_property_list_add_string(p, label, dev->serial);
         if (is_offline)
             obs_property_list_item_disable(p, idx, true);
     }
@@ -560,7 +614,7 @@ static obs_properties_t *plugin_properties(void *data) {
         toggle_ppts(ppts, false);
         obs_property_set_description(cp, TEXT_DEACTIVATE);
     } else {
-        refresh_clicked(ppts, NULL, NULL);
+        refresh_clicked(ppts, NULL, data);
     }
 
     return ppts;

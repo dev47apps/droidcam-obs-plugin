@@ -2,8 +2,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "net.h"
 #include "command.h"
-#include "adb_command.h"
+#include "usb_util.h"
 
 bool process_check_success(process_t proc, const char *name) {
     if (proc == PROCESS_NONE) {
@@ -117,6 +118,8 @@ AdbMgr::AdbMgr() {
     process_check_success(proc, "adb start-server");
 }
 
+// FIXME what if adb is not installed
+// FIXME cross check adb code with the windows client
 AdbMgr::~AdbMgr() {
     int i = 0;
     for (; i < DEVICES_LIMIT; i++) if(deviceList[i]) delete deviceList[i];
@@ -164,7 +167,7 @@ bool AdbMgr::Reload(void) {
         memcpy(dev.serial, p, len);
 
         p = sep + 1;
-        while (*p != '\0' && (*p == ' ' || *p == '\t')) { p++; }
+        while (*p != '\r' && *p != '\0' && (*p == ' ' || *p == '\t')) { p++; }
         sep = strchr(p, '\0');
         if (!sep) break;
         len = sep - p;
@@ -177,10 +180,25 @@ bool AdbMgr::Reload(void) {
 
         memcpy(deviceList[i]->serial, dev.serial, sizeof(dev.serial));
         memcpy(deviceList[i]->state, dev.state, sizeof(dev.state));
+        memset(deviceList[i]->model, 0, sizeof(dev.model));
         if (++i == DEVICES_LIMIT) break;
     } while ((p = strtok_r(NULL, "\n", &n)) != NULL);
 
     return true;
+}
+
+static void GetModel(AdbDevice *dev) {
+    char buf[1024] = {0};
+    process_t proc;
+    const char *ro[] = {"shell", "getprop", "ro.product.model"};
+    proc = adb_execute(dev->serial, ro, ARRAY_LEN(ro), buf, sizeof(buf));
+    if (process_check_success(proc, "adb get model")) {
+        char *p = buf;
+        char *end = buf + sizeof(dev->model) - 2;
+        while (p < end && (isalnum(*p) || *p == ' ' || *p == '-' || *p == '_')) p++;
+        memcpy(dev->model, buf, p - buf);
+        dlog("model: %s", dev->model);
+    }
 }
 
 AdbDevice* AdbMgr::NextDevice(int *is_offline) {
@@ -198,6 +216,8 @@ AdbDevice* AdbMgr::NextDevice(int *is_offline) {
 
         AdbDevice* dev = deviceList[iter];
         iter++;
+        if (!*is_offline && dev->model[0] == 0)
+           GetModel(dev);
         return dev;
     }
     return 0;
@@ -215,3 +235,84 @@ adb_forward(const char *serial, int local_port, int remote_port) {
     return process_check_success(proc, "adb fwd");
 }
 
+void
+adb_forward_remove_all(const char *serial) {
+    const char *const cmd[] = {"forward", "--remove-all"};
+    process_t proc = adb_execute(serial, cmd, ARRAY_LEN(cmd), NULL, 0);
+    process_check_success(proc, "adb fwd clear");
+    return;
+}
+
+USBMux::USBMux() {
+#ifdef _WIN32
+    hModule = LoadLibrary("usbmuxd.dll");
+    if (!hModule) {
+        // FIXME show dialog?
+        elog("Error loading usbmuxd.dll")
+        return;
+    }
+    usbmuxd_set_debug_level  = (libusbmuxd_set_debug_level_t) GetProcAddress(hModule, "libusbmuxd_set_debug_level");
+    usbmuxd_get_device_list  = (usbmuxd_get_device_list_t   ) GetProcAddress(hModule, "usbmuxd_get_device_list");
+    usbmuxd_device_list_free = (usbmuxd_device_list_free_t  ) GetProcAddress(hModule, "usbmuxd_device_list_free");
+    usbmuxd_connect          = (usbmuxd_connect_t           ) GetProcAddress(hModule, "usbmuxd_connect");
+    usbmuxd_disconnect       = (usbmuxd_disconnect_t        ) GetProcAddress(hModule, "usbmuxd_disconnect");
+#endif
+    // usbmuxd_set_debug_level(9);
+}
+
+USBMux::~USBMux() {
+#ifdef _WIN32
+    if (hModule) {
+        usbmuxd_device_list_free(&deviceList);
+        FreeLibrary(hModule);
+    }
+#endif
+}
+
+int USBMux::Reload(void) {
+
+#ifdef _WIN32
+    if (!hModule) {
+        deviceCount = 0;
+        return 0;
+    }
+#endif
+
+    usbmuxd_device_list_free(&deviceList);
+    deviceCount = usbmuxd_get_device_list(&deviceList);
+    dlog("USBMux: Reload: %d devices", deviceCount);
+    if (deviceCount < 0) {
+        dlog("Could not get iOS device list, usbmuxd not running?");
+        deviceCount = 0;
+        return 0;
+    }
+    return 1;
+}
+
+usbmuxd_device_info_t* USBMux::NextDevice(void) {
+    if (iter >= deviceCount) return 0;
+    return &deviceList[iter++];
+}
+
+int USBMux::Connect(int device, int port) {
+    int rc;
+    dlog("USBMUX Connect: dev=%d/%d, port=%d", device, deviceCount, port);
+
+#ifdef _WIN32
+    if (!hModule) {
+        elog("USBMUX dll not loaded");
+        goto out;
+    }
+#endif
+
+    if (device < deviceCount) {
+        rc = usbmuxd_connect(deviceList[device].handle, (short) port);
+        if (rc <= 0) {
+            elog("usbmuxd_connect failed: %d", rc);
+            goto out;
+        }
+        return rc;
+    }
+out:
+    return INVALID_SOCKET;
+}
