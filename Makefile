@@ -24,7 +24,7 @@ all: $(LIB_DLL)
 
 UNAME := $(shell uname -s)
 ifeq ($(UNAME),Linux)
-
+## LINUX ##
 	INCLUDES += -I/usr/include/obs
 	LDD_LIBS += -lobs
 	LDD_FLAG += -shared
@@ -34,12 +34,11 @@ ifeq ($(UNAME),Linux)
 
 run:
 	rm ~/.config/obs-studio/logs/* && obs
-
-# g++ -std=c++11 -x c++ -Wall -fPIC -I/usr/include/obs -Isrc/ -lobs -shared -o ~/.config/obs-studio/plugins/droidcam-obs/bin/64bit/droidcam-obs.so src/*.c src/sys/unix/*.c
+## LINUX ##
 endif
 
 ifeq ($(UNAME),Darwin)
-
+## MACOS ##
 	CXXFLAGS += -dead_strip
 	INCLUDES += -I/usr/local/opt/qt5/include
 	INCLUDES += -I/usr/local/opt/qt5/include/QtCore
@@ -49,15 +48,11 @@ ifeq ($(UNAME),Darwin)
 	INCLUDES += -I../obs-studio-24.0.2/libobs
 	LDD_DIRS += -L/Applications/OBS.app/Contents/Resources/bin
 	LDD_LIBS += -lobs.0 -lavcodec.58 -lavformat.58 -lavutil.56
-	LDD_DIRS += -Lbuild
-	LDD_LIBS += -lQtCore -lQtWidgets
 	LDD_FLAG += -bundle
 
 run:
 	rm ~/Library/ApplicationSupport/obs-studio/logs/* && /Applications/OBS.app/Contents/MacOS/OBS
-
-#g++ -std=c++11 -x c++ -Wall -fPIC -dead_strip -I../include/ -I../include/libobs/ -Isrc/ -L/Applications/OBS.app/Contents/Resources/bin -lobs.0 -lobs-frontend-api -lavcodec.58 -lavformat.58 -lavutil.56 -bundle -o build/droidcam-obs.so src/*.c src/sys/unix/*.c
-
+## MACOS ##
 endif
 
 $(LIB_DLL): $(SRC)

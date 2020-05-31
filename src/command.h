@@ -1,3 +1,4 @@
+// Copyright (C) 2020 github.com/aramg
 #ifndef COMMAND_H
 #define COMMAND_H
 

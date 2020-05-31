@@ -1,3 +1,20 @@
+/*
+Copyright (C) 2020 github.com/aramg
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 2 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
 #include <errno.h>
 #include <string.h>
 #include "plugin.h"
@@ -7,16 +24,38 @@
 #ifdef __WINDOWS__
   typedef int socklen_t;
 #else
-# include <sys/types.h>
-# include <sys/socket.h>
-# include <netinet/in.h>
 # include <arpa/inet.h>
+# include <fcntl.h>
 # include <unistd.h>
-# define SOCKET_ERROR -1
   typedef struct sockaddr_in SOCKADDR_IN;
   typedef struct sockaddr SOCKADDR;
   typedef struct in_addr IN_ADDR;
 #endif
+
+static bool set_nonblock(socket_t sock, int nonblock) {
+#ifdef __WINDOWS__
+    u_long nb = nonblock;
+    return (NO_ERROR == ioctlsocket(sock, FIONBIO, &nb));
+#else
+    int flags = fcntl(sock, F_GETFL, NULL);
+    if (flags < 0) {
+        elog("fcntl(): %s", strerror(errno));
+        return false;
+    }
+
+    if (nonblock)
+        flags |= O_NONBLOCK;
+    else
+        flags &= ~O_NONBLOCK;
+
+    if (fcntl(sock, F_SETFL, flags) < 0) {
+        elog("fcntl(): %s", strerror(errno));
+        return false;
+    }
+
+    return true;
+#endif
+}
 
 socket_t
 net_connect_and_ping(const char* ip, uint16_t port) {
@@ -51,6 +90,8 @@ net_connect_and_ping(const char* ip, uint16_t port) {
 socket_t
 net_connect(const char* ip, uint16_t port) {
     dlog("connect %s:%d", ip, port);
+
+    int len = 65536;
     socket_t sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock == INVALID_SOCKET) {
         elog("socket(): %s", strerror(errno));
@@ -62,12 +103,40 @@ net_connect(const char* ip, uint16_t port) {
     sin.sin_addr.s_addr = inet_addr(ip);
     sin.sin_port = htons(port);
 
-    if (connect(sock, (SOCKADDR *) &sin, sizeof(sin)) == SOCKET_ERROR) {
-        elog("connect(): %s", strerror(errno));
+    struct timeval timeout;
+    timeout.tv_sec = 2;
+    timeout.tv_usec = 0;
+
+    fd_set set;
+    FD_ZERO(&set);
+    FD_SET(sock, &set);
+
+    if (!set_nonblock(sock, 1)) {
+ERROR_OUT:
         net_close(sock);
         return INVALID_SOCKET;
     }
 
+    connect(sock, (SOCKADDR *) &sin, sizeof(sin));
+#if __WINDOWS__
+    if (WSAGetLastError() != WSAEWOULDBLOCK)
+        goto ERROR_OUT;
+#else
+    if (!(errno == EAGAIN || errno == EWOULDBLOCK || errno == EINPROGRESS)) {
+        elog("connect(): %s", strerror(errno));
+        goto ERROR_OUT;
+    }
+#endif
+
+    if (select(sock+1, NULL, &set, NULL, &timeout) <= 0) {
+        elog("connect timeout/failed: %s", strerror(errno));
+        goto ERROR_OUT;
+    }
+
+    if (!set_nonblock(sock, 0))
+        goto ERROR_OUT;
+
+    setsockopt(sock, SOL_SOCKET, SO_RCVBUF, (char *) &len, sizeof(int));
     return sock;
 }
 

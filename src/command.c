@@ -1,3 +1,20 @@
+/*
+Copyright (C) 2020 github.com/aramg
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 2 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -243,6 +260,8 @@ adb_forward_remove_all(const char *serial) {
     return;
 }
 
+// MARK: USBMUX
+
 USBMux::USBMux() {
 #ifdef _WIN32
     hModule = LoadLibrary("usbmuxd.dll");
@@ -270,7 +289,10 @@ USBMux::~USBMux() {
 }
 
 int USBMux::Reload(void) {
-
+#ifdef __APPLE__
+    deviceCount = 0;
+    return 0;
+#endif
 #ifdef _WIN32
     if (!hModule) {
         deviceCount = 0;
@@ -295,6 +317,9 @@ usbmuxd_device_info_t* USBMux::NextDevice(void) {
 }
 
 int USBMux::Connect(int device, int port) {
+#ifdef __APPLE__
+    return INVALID_SOCKET;
+#else
     int rc;
     dlog("USBMUX Connect: dev=%d/%d, port=%d", device, deviceCount, port);
 
@@ -315,4 +340,5 @@ int USBMux::Connect(int device, int port) {
     }
 out:
     return INVALID_SOCKET;
+#endif // __APPLE__
 }

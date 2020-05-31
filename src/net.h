@@ -1,3 +1,4 @@
+// Copyright (C) 2020 github.com/aramg
 #ifndef NET_H
 #define NET_H
 
