@@ -4,6 +4,14 @@ void list_props(void);
 void list_devices(void);
 
 int main(int argc, char** argv) {
+	if (argc == 2 && strcmp(argv[1], "start-server") == 0) {
+		return 0;
+	}
+
+	if (argc == 3 && strcmp(argv[1], "reconnect") == 0 && strcmp(argv[2], "offline") == 0) {
+		return 0;
+	}
+
 	if (argc == 2 && strcmp(argv[1], "devices") == 0) {
 		list_devices();
 		return 0;

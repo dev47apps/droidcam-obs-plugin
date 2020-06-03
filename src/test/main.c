@@ -2,8 +2,8 @@
 
 #include <plugin.h>
 #include <net.h>
+#include <usb_util.h>
 #include <command.h>
-#include <adb_command.h>
 
 void test_exec(void) {
     enum process_result pr;
@@ -37,10 +37,17 @@ void test_exec(void) {
 void test_adb(void) {
     dlog("test_adb()");
     int offline;
+    AdbDevice* dev;
+
     AdbMgr adbMgr;
     adbMgr.Reload();
     adbMgr.ResetIter();
-    adbMgr.NextDevice(&offline);
+    dev = adbMgr.NextDevice(&offline);
+    if (dev) {
+        dlog("dev: serial=%s state=%s model=%s", dev->serial, dev->state, dev->model);
+    } else {
+        dlog("Failed: No devices found");
+    }
     dlog("~test_adb");
 }
 

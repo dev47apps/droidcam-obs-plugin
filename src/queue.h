@@ -7,25 +7,25 @@
 
 template<typename T>
 struct queue {
-	std::mutex items_lock;
-	std::vector<T> items;
+    std::mutex items_lock;
+    std::vector<T> items;
 
-	void add_item(T item) {
-	    items_lock.lock();
-	    items.push_back(item);
-	    items_lock.unlock();
-	}
+    void add_item(T item) {
+        items_lock.lock();
+        items.push_back(item);
+        items_lock.unlock();
+    }
 
-	T next_item(void) {
-	    T item{};
-	    if (items.size()) {
-	        items_lock.lock();
-	        item = items.front();
-	        items.erase(items.begin());
-	        items_lock.unlock();
-	    }
-	    return item;
-	}
+    T next_item(void) {
+        T item{};
+        if (items.size()) {
+            items_lock.lock();
+            item = items.front();
+            items.erase(items.begin());
+            items_lock.unlock();
+        }
+        return item;
+    }
 };
 
 #endif

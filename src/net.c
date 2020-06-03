@@ -21,7 +21,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "plugin_properties.h"
 #include "net.h"
 
-#ifdef __WINDOWS__
+#ifdef _WIN32
+  #pragma comment(lib,"ws2_32.lib")
   typedef int socklen_t;
 #else
 # include <arpa/inet.h>
@@ -33,7 +34,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #endif
 
 static bool set_nonblock(socket_t sock, int nonblock) {
-#ifdef __WINDOWS__
+#ifdef _WIN32
     u_long nb = nonblock;
     return (NO_ERROR == ioctlsocket(sock, FIONBIO, &nb));
 #else
@@ -118,7 +119,7 @@ ERROR_OUT:
     }
 
     connect(sock, (SOCKADDR *) &sin, sizeof(sin));
-#if __WINDOWS__
+#if _WIN32
     if (WSAGetLastError() != WSAEWOULDBLOCK)
         goto ERROR_OUT;
 #else
@@ -142,24 +143,41 @@ ERROR_OUT:
 
 ssize_t
 net_recv(socket_t sock, void *buf, size_t len) {
+#if _WIN32
+    return recv(sock, (char*)buf, len, 0);
+#else
     return recv(sock, buf, len, 0);
+#endif
 }
 
 ssize_t
 net_recv_all(socket_t sock, void *buf, size_t len) {
+#if _WIN32
+    return recv(sock, (char*)buf, len, MSG_WAITALL);
+#else
     return recv(sock, buf, len, MSG_WAITALL);
+#endif
 }
 
 ssize_t
 net_send(socket_t sock, const void *buf, size_t len) {
+#if _WIN32
+    return send(sock, (const char*)buf, len, 0);
+#else
     return send(sock, buf, len, 0);
+#endif
+
 }
 
 ssize_t
 net_send_all(socket_t sock, const void *buf, size_t len) {
     ssize_t w = 0;
     while (len > 0) {
+        #if _WIN32
+        w = send(sock, (const char*)buf, len, 0);
+        #else
         w = send(sock, buf, len, 0);
+        #endif
         if (w == -1) {
             return -1;
         }
@@ -173,16 +191,16 @@ bool
 net_close(socket_t sock)
 {
     shutdown(sock, SHUT_RDWR);
-#ifdef __WINDOWS__
+#ifdef _WIN32
     return !closesocket(sock);
 #else
     return !close(sock);
-}
 #endif
+}
 
 bool
 net_init(void) {
-#ifdef __WINDOWS__
+#ifdef _WIN32
     WSADATA wsa;
     int res = WSAStartup(MAKEWORD(2, 2), &wsa) < 0;
     if (res < 0) {
@@ -195,7 +213,7 @@ net_init(void) {
 
 void
 net_cleanup(void) {
-#ifdef __WINDOWS__
+#ifdef _WIN32
     WSACleanup();
 #endif
 }

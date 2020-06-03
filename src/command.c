@@ -85,7 +85,7 @@ process_print_error(enum process_result err, const char *const argv[]) {
 static const char *adb_exe =
 #ifdef _WIN32
 #ifdef TEST
-    ".\\adb\\adbz.exe";
+    ".\\build\\adbz.exe";
 #else
     ".\\adb\\adb.exe";
 #endif /* TEST */
@@ -266,8 +266,7 @@ USBMux::USBMux() {
 #ifdef _WIN32
     hModule = LoadLibrary("usbmuxd.dll");
     if (!hModule) {
-        // FIXME show dialog?
-        elog("Error loading usbmuxd.dll")
+        elog("Error loading usbmuxd.dll");
         return;
     }
     usbmuxd_set_debug_level  = (libusbmuxd_set_debug_level_t) GetProcAddress(hModule, "libusbmuxd_set_debug_level");

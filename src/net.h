@@ -5,12 +5,13 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#ifdef __WINDOWS__
+#ifdef _WIN32
 # include <winsock2.h>
   #define SHUT_RD SD_RECEIVE
   #define SHUT_WR SD_SEND
   #define SHUT_RDWR SD_BOTH
   typedef SOCKET socket_t;
+  typedef int ssize_t;
 #else
 # include <sys/socket.h>
 # define INVALID_SOCKET -1

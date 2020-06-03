@@ -14,18 +14,17 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
-
 #include <stdlib.h>
 #include <util/threading.h>
 #include <util/platform.h>
 
 #include "queue.h"
+#include "net.h"
+#include "buffer_util.h"
+#include "usb_util.h"
 #include "plugin.h"
 #include "plugin_properties.h"
 #include "ffmpeg_decode.h"
-#include "buffer_util.h"
-#include "usb_util.h"
-#include "net.h"
 
 #define FPS 10
 #define MILLI_SEC 1000
