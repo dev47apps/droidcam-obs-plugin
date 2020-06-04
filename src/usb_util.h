@@ -41,6 +41,8 @@ private:
     usbmuxd_disconnect_t         usbmuxd_disconnect;
 
     HMODULE hModule;
+#else
+    int *hModule;
 #endif
 public:
     int iter;

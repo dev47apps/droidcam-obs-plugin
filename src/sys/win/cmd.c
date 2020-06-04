@@ -87,9 +87,9 @@ cmd_execute(const char *path, const char *const argv[], HANDLE *handle, char* ou
         }
         // n == 0
     }
-    do {
+    while (PeekNamedPipe(hChildStd_OUT_Rd, NULL, 0, NULL, &n, NULL) && n > 0) {
         bSuccess = ReadFile(hChildStd_OUT_Rd, scratch, sizeof(scratch), &n, NULL);
-    } while (bSuccess && n > 0);
+    }
 
     return PROCESS_SUCCESS;
 }
@@ -97,10 +97,10 @@ cmd_execute(const char *path, const char *const argv[], HANDLE *handle, char* ou
 bool
 cmd_simple_wait(HANDLE handle, DWORD *exit_code) {
     DWORD code;
-    if (WaitForSingleObject(handle, INFINITE) != WAIT_OBJECT_0
-            || !GetExitCodeProcess(handle, &code)) {
+    if (WaitForSingleObject(handle, 5000) != WAIT_OBJECT_0 || !GetExitCodeProcess(handle, &code)) {
         // could not wait or retrieve the exit code
-        code = -1; // max value, it's unsigned
+        code = (DWORD)(-1); // max value, it's unsigned
+        TerminateProcess(handle, code);
     }
     if (exit_code) {
         *exit_code = code;

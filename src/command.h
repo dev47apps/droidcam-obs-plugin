@@ -26,9 +26,14 @@
   typedef HANDLE process_t;
   typedef DWORD exit_code_t;
 
+static inline bool FileExists(const char *path) {
+  DWORD dwAttrib = GetFileAttributes(path);
+  return (dwAttrib != INVALID_FILE_ATTRIBUTES && !(dwAttrib & FILE_ATTRIBUTE_DIRECTORY));
+}
 #else
 
 # include <sys/types.h>
+# include <unistd.h>
 # define PATH_SEPARATOR '/'
 # define PRIsizet "zu"
 # define PRIexitcode "d"
@@ -36,6 +41,9 @@
   typedef pid_t process_t;
   typedef int exit_code_t;
 
+static inline bool FileExists(const char *path) {
+  return (access(path, F_OK|R_OK) != -1);
+}
 #endif
 
 # define NO_EXIT_CODE -1

@@ -328,7 +328,7 @@ static void *video_thread(void *data) {
 LOOP:
         obs_source_output_video2(plugin->source, NULL);
         os_sleep_ms(MILLI_SEC);
-        dlog("activated=%d is_showing=%d", plugin->activated, plugin->is_showing);
+        // dlog("activated=%d is_showing=%d", plugin->activated, plugin->is_showing);
     }
 
     plugin->video_running = false;

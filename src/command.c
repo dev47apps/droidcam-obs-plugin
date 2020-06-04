@@ -135,8 +135,6 @@ AdbMgr::AdbMgr() {
     process_check_success(proc, "adb start-server");
 }
 
-// FIXME what if adb is not installed
-// FIXME cross check adb code with the windows client
 AdbMgr::~AdbMgr() {
     int i = 0;
     for (; i < DEVICES_LIMIT; i++) if(deviceList[i]) delete deviceList[i];
@@ -150,7 +148,7 @@ bool AdbMgr::Reload(void) {
     const char *ro[] = {"reconnect", "offline"};
     proc = adb_execute(NULL, ro, ARRAY_LEN(ro), NULL, 0);
     if (!process_check_success(proc, "adb r.o.")) {
-        return false;
+        dlog("adb r.o. failed");
     }
 
     const char *dd[] = {"devices"};
@@ -164,7 +162,13 @@ bool AdbMgr::Reload(void) {
     char *p = strtok_r(buf, "\n", &n);
     do {
         dlog(": %s", p);
-        if (strstr(p, "List of") != NULL){
+        if (p[0] == ' ' || p[0] == 0) {
+            continue;
+        }
+        if (strstr(p, "* daemon") != NULL) {
+            continue;
+        }
+        if (strstr(p, "List of") != NULL) {
             continue;
         }
 
@@ -219,16 +223,16 @@ static void GetModel(AdbDevice *dev) {
 }
 
 AdbDevice* AdbMgr::NextDevice(int *is_offline) {
-    const char* offline = "offline";
+    const char* device = "device";
 
     if (iter >= DEVICES_LIMIT) iter = 0;
 
     if (deviceList[iter]) {
-        if (memcmp(offline, deviceList[iter]->state, sizeof(offline)-1) == 0) {
-            dlog("device %s is offline", deviceList[iter]->serial);
-            *is_offline = 1;
-        } else {
+        if (memcmp(device, deviceList[iter]->state, sizeof(device)-1) == 0) {
             *is_offline = 0;
+        } else {
+            dlog("device %s is %s", deviceList[iter]->serial, deviceList[iter]->state);
+            *is_offline = 1;
         }
 
         AdbDevice* dev = deviceList[iter];
@@ -263,6 +267,11 @@ adb_forward_remove_all(const char *serial) {
 // MARK: USBMUX
 
 USBMux::USBMux() {
+    if (!FileExists("usbmuxd.dll")) {
+        dlog("iOS support not available\n");
+        hModule = NULL;
+        return;
+    }
 #ifdef _WIN32
     hModule = LoadLibrary("usbmuxd.dll");
     if (!hModule) {
@@ -292,12 +301,11 @@ int USBMux::Reload(void) {
     deviceCount = 0;
     return 0;
 #endif
-#ifdef _WIN32
+
     if (!hModule) {
         deviceCount = 0;
         return 0;
     }
-#endif
 
     usbmuxd_device_list_free(&deviceList);
     deviceCount = usbmuxd_get_device_list(&deviceList);
@@ -319,15 +327,14 @@ int USBMux::Connect(int device, int port) {
 #ifdef __APPLE__
     return INVALID_SOCKET;
 #else
+
     int rc;
     dlog("USBMUX Connect: dev=%d/%d, port=%d", device, deviceCount, port);
 
-#ifdef _WIN32
     if (!hModule) {
         elog("USBMUX dll not loaded");
         goto out;
     }
-#endif
 
     if (device < deviceCount) {
         rc = usbmuxd_connect(deviceList[device].handle, (short) port);
