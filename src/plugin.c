@@ -387,51 +387,64 @@ do_audio_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
 static void *audio_thread(void *data) {
     droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
     socket_t sock = INVALID_SOCKET;
-    int video_wait_counter;
     const char *audio_req = AUDIO_REQ;
 
     while (os_event_try(plugin->stop_signal) == EAGAIN) {
-        if (plugin->audio_running) {
-            if (!do_audio_frame(plugin, sock)) {
+        if (plugin->activated && plugin->is_showing && plugin->enable_audio) {
+            if (plugin->audio_running) {
+                if (do_audio_frame(plugin, sock)) {
+                    continue;
+                }
+
                 plugin->audio_running = false;
-                continue;
-            }
-        } else {
-            if (sock != INVALID_SOCKET) {
-                dlog("closing audio socket %d", sock);
+                dlog("closing failed audio socket %d", sock);
                 net_close(sock);
                 sock = INVALID_SOCKET;
+                goto LOOP;
             }
 
-            obs_source_output_audio(plugin->source, NULL);
-            os_sleep_ms(MILLI_SEC / FPS);
+            // connect audio only after video works
+            if (!plugin->video_running) {
+                os_sleep_ms(5);
+                continue;
+            }
+
+            if ((sock = connect(plugin)) <= 0)
+                goto LOOP;
+
+            if (net_send_all(sock, audio_req, sizeof(AUDIO_REQ)-1) <= 0) {
+                elog("send(/audio) failed");
+                net_close(sock);
+                sock = INVALID_SOCKET;
+                goto LOOP;
+            }
+
+            plugin->audio_running = true;
+            dlog("starting audio via socket %d", sock);
+            continue;
         }
 
-        socket_t s = 0; // FIXME plugin->audio_socket_queue.next_item();
-        if (s > 0) {
-            if (plugin->audio_running) {
-                elog("dropping audio socket %d, already running", s);
-                drop:
-                net_close(s);
-            } else {
-                video_wait_counter = 0;
-                while (!plugin->video_running) {
-                    os_sleep_ms(MILLI_SEC / FPS);
-                    if (++video_wait_counter > FPS) {
-                        dlog("audio: waited too long for video to start, dropping socket");
-                        goto drop;
-                    }
-                }
-                if (net_send_all(s, audio_req, sizeof(AUDIO_REQ)-1) <= 0) {
-                    elog("send(/audio) failed");
-                    net_close(s);
-                } else {
-                    sock = s;
-                    plugin->audio_running = true;
-                    dlog("starting audio via socket %d", s);
-                }
-            }
+        // else: not activated
+        if (plugin->audio_running) {
+            plugin->audio_running = false;
         }
+
+        if (sock != INVALID_SOCKET) {
+            dlog("closing active audio socket %d", sock);
+            net_close(sock);
+            sock = INVALID_SOCKET;
+            adb_forward_remove_all(NULL);
+        }
+
+        if (ffmpeg_decode_valid(&plugin->audio_decoder)) {
+            ffmpeg_decode_free(&plugin->audio_decoder);
+        }
+
+LOOP:
+        os_sleep_ms(MILLI_SEC);
+        if (plugin->enable_audio) obs_source_output_audio(plugin->source, NULL);
+        dlog("activated=%d is_showing=%d video_running=%d",
+            plugin->activated, plugin->is_showing, plugin->video_running);
     }
 
     plugin->audio_running = false;
@@ -691,6 +704,8 @@ static void plugin_update(void *data, obs_data_t *settings) {
     plugin->enable_audio  = obs_data_get_bool(settings, OPT_ENABLE_AUDIO);
     bool sync_av = obs_data_get_bool(settings, OPT_SYNC_AV);
     bool activated = obs_data_get_bool(settings, OPT_IS_ACTIVATED);
+
+    // FIXME changing settings while activated resets the device ID
 
     dlog("plugin_udpate: activated=%d (actual=%d) sync_av=%d", plugin->activated, activated, sync_av);
     obs_source_set_async_decoupled(plugin->source, !sync_av);
