@@ -3,6 +3,7 @@
 #define __USB_UTIL_H__
 
 #define DEVICES_LIMIT 8
+#define PLUGIN_DATA_DIR "..\\..\\data\\obs-plugins\\droidcam-obs"
 
 struct AdbDevice {
     char serial[80];
@@ -14,6 +15,7 @@ struct AdbDevice {
 
 struct AdbMgr {
     int iter;
+    int disabled;
     AdbDevice* deviceList[DEVICES_LIMIT];
     AdbMgr();
     ~AdbMgr();

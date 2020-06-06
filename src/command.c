@@ -87,7 +87,7 @@ static const char *adb_exe =
 #ifdef TEST
     ".\\build\\adbz.exe";
 #else
-    ".\\adb\\adb.exe";
+    PLUGIN_DATA_DIR "\\adb\\adb.exe";
 #endif /* TEST */
 #else
 #ifdef TEST
@@ -130,6 +130,13 @@ AdbMgr::AdbMgr() {
     int i = 0;
     for (; i < DEVICES_LIMIT; i++) deviceList[i] = NULL;
 
+   if (!FileExists(adb_exe)) {
+        elog("adb.exe not available\n");
+        disabled = 1;
+        return;
+    }
+    disabled = 0;
+
     const char *ss[] = {"start-server"};
     process_t proc = adb_execute(NULL, ss, ARRAY_LEN(ss), NULL, 0);
     process_check_success(proc, "adb start-server");
@@ -137,6 +144,8 @@ AdbMgr::AdbMgr() {
 
 AdbMgr::~AdbMgr() {
     int i = 0;
+    const char *ss[] = {"kill-server"};
+    process_t proc = adb_execute(NULL, ss, ARRAY_LEN(ss), NULL, 0);
     for (; i < DEVICES_LIMIT; i++) if(deviceList[i]) delete deviceList[i];
 }
 
@@ -144,6 +153,8 @@ bool AdbMgr::Reload(void) {
     char buf[1024];
     AdbDevice dev;
     process_t proc;
+    if (disabled) // adb.exe was not found
+        return FALSE;
 
     const char *ro[] = {"reconnect", "offline"};
     proc = adb_execute(NULL, ro, ARRAY_LEN(ro), NULL, 0);
@@ -223,15 +234,16 @@ static void GetModel(AdbDevice *dev) {
 }
 
 AdbDevice* AdbMgr::NextDevice(int *is_offline) {
-    const char* device = "device";
+    #define STATE_DEVICE "device"
+    const char* device = STATE_DEVICE;
 
     if (iter >= DEVICES_LIMIT) iter = 0;
 
     if (deviceList[iter]) {
-        if (memcmp(device, deviceList[iter]->state, sizeof(device)-1) == 0) {
+        dlog("device %s is %s", deviceList[iter]->serial, deviceList[iter]->state);
+        if (memcmp(device, deviceList[iter]->state, sizeof(STATE_DEVICE)-1) == 0) {
             *is_offline = 0;
         } else {
-            dlog("device %s is %s", deviceList[iter]->serial, deviceList[iter]->state);
             *is_offline = 1;
         }
 
@@ -267,13 +279,14 @@ adb_forward_remove_all(const char *serial) {
 // MARK: USBMUX
 
 USBMux::USBMux() {
-    if (!FileExists("usbmuxd.dll")) {
-        dlog("iOS support not available\n");
+    const char *usbmuxd_dll = PLUGIN_DATA_DIR "\\usbmuxd.dll";
+    if (!FileExists(usbmuxd_dll)) {
+        elog("iOS support not available\n");
         hModule = NULL;
         return;
     }
 #ifdef _WIN32
-    hModule = LoadLibrary("usbmuxd.dll");
+    hModule = LoadLibrary(usbmuxd_dll);
     if (!hModule) {
         elog("Error loading usbmuxd.dll");
         return;

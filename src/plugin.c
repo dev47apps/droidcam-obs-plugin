@@ -26,7 +26,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "plugin_properties.h"
 #include "ffmpeg_decode.h"
 
-#define FPS 10
+#define FPS 25
 #define MILLI_SEC 1000
 #define NANO_SEC  1000000000
 
@@ -74,7 +74,7 @@ struct droidcam_obs_plugin {
 };
 
 #define ADB_PORT_START 7173
-#define ADB_PORT_LAST  8173
+#define ADB_PORT_LAST  7273
 int adb_port = ADB_PORT_START;
 
 #if 0
@@ -178,6 +178,7 @@ out:
 }
 
 #define MAXCONFIG 1024
+#define MAXPACKET 1024 * 1024
 static int read_frame(struct ffmpeg_decode *decoder, uint64_t *pts, socket_t sock, int *has_config) {
     uint8_t header[HEADER_SIZE];
     uint8_t config[MAXCONFIG];
@@ -194,9 +195,6 @@ AGAIN:
     *pts = buffer_read64be(header);
     len = buffer_read32be(&header[8]);
     // dlog("read_frame: header: pts=%llu len=%d", *pts, (int)len);
-    if (len == 0 || len > 1024 * 1024) {
-        return 0;
-    }
 
     if (*pts == NO_PTS) {
         if (config_len != 0) {
@@ -204,7 +202,12 @@ AGAIN:
              return 0;
         }
 
-        if (len > MAXCONFIG) {
+        if ((int)len == -1) {
+            elog("stop/error from app side");
+            return -1;
+        }
+
+        if (len == 0 || len > MAXCONFIG) {
             elog("config packet too large at %ld!", len);
             return 0;
         }
@@ -217,6 +220,10 @@ AGAIN:
         config_len = len;
         *has_config = 1;
         goto AGAIN;
+    }
+
+    if (len == 0 || len > MAXPACKET) {
+        return 0;
     }
 
     uint8_t *p = ffmpeg_decode_get_buffer(decoder, config_len + len);
@@ -252,6 +259,10 @@ do_video_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
 
     int has_config = 0;
     int len = read_frame(decoder, &pts, sock, &has_config);
+    if (len < 0) {
+        plugin->activated = false;
+        return false;
+    }
     if (len == 0)
         return false;
 
@@ -279,6 +290,7 @@ static void *video_thread(void *data) {
     droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
     socket_t sock = INVALID_SOCKET;
     const char *video_req = VIDEO_REQ;
+    int rate_limit = 0;
 
     while (os_event_try(plugin->stop_signal) == EAGAIN) {
         if (plugin->activated && plugin->is_showing) {
@@ -294,6 +306,11 @@ static void *video_thread(void *data) {
                 goto LOOP;
             }
 
+            rate_limit ++;
+            if (rate_limit % FPS != 0)
+                goto LOOP;
+
+            rate_limit = 0;
             if ((sock = connect(plugin)) <= 0)
                 goto LOOP;
 
@@ -327,8 +344,7 @@ static void *video_thread(void *data) {
 
 LOOP:
         obs_source_output_video2(plugin->source, NULL);
-        os_sleep_ms(MILLI_SEC);
-        // dlog("activated=%d is_showing=%d", plugin->activated, plugin->is_showing);
+        os_sleep_ms(MILLI_SEC / FPS);
     }
 
     plugin->video_running = false;
@@ -344,6 +360,10 @@ do_audio_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
     // aac decoder doesnt like parsing the header, pass to our init
     int has_config = 0;
     int len = read_frame(decoder, &pts, sock, &has_config);
+    if (len < 0) {
+        plugin->activated = false;
+        return false;
+    }
     if (len == 0)
         return false;
 
@@ -404,10 +424,8 @@ static void *audio_thread(void *data) {
             }
 
             // connect audio only after video works
-            if (!plugin->video_running) {
-                os_sleep_ms(5);
-                continue;
-            }
+            if (!plugin->video_running)
+                goto LOOP;
 
             if ((sock = connect(plugin)) <= 0)
                 goto LOOP;
@@ -433,7 +451,6 @@ static void *audio_thread(void *data) {
             dlog("closing active audio socket %d", sock);
             net_close(sock);
             sock = INVALID_SOCKET;
-            adb_forward_remove_all(NULL);
         }
 
         if (ffmpeg_decode_valid(&plugin->audio_decoder)) {
@@ -441,10 +458,8 @@ static void *audio_thread(void *data) {
         }
 
 LOOP:
-        os_sleep_ms(MILLI_SEC);
+        os_sleep_ms(MILLI_SEC / FPS);
         if (plugin->enable_audio) obs_source_output_audio(plugin->source, NULL);
-        dlog("activated=%d is_showing=%d video_running=%d",
-            plugin->activated, plugin->is_showing, plugin->video_running);
     }
 
     plugin->audio_running = false;
@@ -490,6 +505,8 @@ static void plugin_destroy(void *data) {
         if (ffmpeg_decode_valid(&plugin->audio_decoder))
             ffmpeg_decode_free(&plugin->audio_decoder);
 
+        delete plugin->adbMgr;
+        delete plugin->iosMgr;
         delete plugin;
     }
 }
@@ -586,7 +603,8 @@ static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
     obs_property_t *cp = obs_properties_get(ppts, OPT_CONNECT);
     obs_property_set_enabled(cp, false);
 
-    if (plugin->activated) {
+    bool activated = obs_data_get_bool(settings, OPT_IS_ACTIVATED);
+    if (activated) {
         plugin->activated = false;
         toggle_ppts(ppts, true);
         obs_data_set_bool(settings, OPT_IS_ACTIVATED, false);
@@ -679,6 +697,7 @@ static bool refresh_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
         goto out;
     }
 
+    adb_forward_remove_all(NULL);
     adbMgr->Reload();
     adbMgr->ResetIter();
     while ((dev = adbMgr->NextDevice(&is_offline)) != NULL) {
@@ -705,8 +724,6 @@ static void plugin_update(void *data, obs_data_t *settings) {
     bool sync_av = obs_data_get_bool(settings, OPT_SYNC_AV);
     bool activated = obs_data_get_bool(settings, OPT_IS_ACTIVATED);
 
-    // FIXME changing settings while activated resets the device ID
-
     dlog("plugin_udpate: activated=%d (actual=%d) sync_av=%d", plugin->activated, activated, sync_av);
     obs_source_set_async_decoupled(plugin->source, !sync_av);
 
@@ -721,13 +738,28 @@ static obs_properties_t *plugin_properties(void *data) {
     obs_data_t *settings = obs_source_get_settings(plugin->source);
     obs_properties_t *ppts = obs_properties_create();
     obs_property_t *cp;
+    AdbDevice* dev;
+    usbmuxd_device_info_t* iosdevice;
+    int is_offline;
     bool activated = obs_data_get_bool(settings, OPT_IS_ACTIVATED);
     dlog("plugin_properties: activated=%d (actual=%d)", plugin->activated, activated);
 
     obs_properties_add_list(ppts, OPT_DEVICE_LIST, TEXT_DEVICE, OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
     cp = obs_properties_get(ppts, OPT_DEVICE_LIST);
-    obs_property_list_add_string(cp, TEXT_USE_WIFI, OPT_DEVICE_ID_WIFI);
+    if (plugin->adbMgr) {
+        plugin->adbMgr->ResetIter();
+        while ((dev = plugin->adbMgr->NextDevice(&is_offline)) != NULL) {
+            char *label = dev->model[0] != 0 ? dev->model : dev->serial;
+            size_t idx = obs_property_list_add_string(cp, label, dev->serial);
+            if (is_offline) obs_property_list_item_disable(cp, idx, true);
+        }
+    }
 
+    if (plugin->iosMgr) {
+        plugin->iosMgr->ResetIter();
+        // TODO reload ios devices
+    }
+    obs_property_list_add_string(cp, TEXT_USE_WIFI, OPT_DEVICE_ID_WIFI);
     obs_properties_add_button(ppts, OPT_REFRESH, TEXT_REFRESH, refresh_clicked);
 
     obs_properties_add_text(ppts, OPT_CONNECT_IP, "WiFi IP", OBS_TEXT_DEFAULT);
