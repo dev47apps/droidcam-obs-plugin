@@ -74,7 +74,7 @@ struct droidcam_obs_plugin {
 };
 
 #define ADB_PORT_START 7173
-#define ADB_PORT_LAST  7273
+#define ADB_PORT_LAST  7203
 int adb_port = ADB_PORT_START;
 
 #if 0
@@ -300,7 +300,7 @@ static void *video_thread(void *data) {
                 }
 
                 plugin->video_running = false;
-                dlog("closing failed video socket %d", sock);
+                ilog("closing failed video socket %d", sock);
                 net_close(sock);
                 sock = INVALID_SOCKET;
                 goto LOOP;
@@ -311,7 +311,7 @@ static void *video_thread(void *data) {
                 goto LOOP;
 
             rate_limit = 0;
-            if ((sock = connect(plugin)) <= 0)
+            if ((sock = connect(plugin)) == INVALID_SOCKET)
                 goto LOOP;
 
             if (net_send_all(sock, video_req, sizeof(VIDEO_REQ)-1) <= 0) {
@@ -322,7 +322,7 @@ static void *video_thread(void *data) {
             }
 
             plugin->video_running = true;
-            dlog("starting video via socket %d", sock);
+            ilog("starting video via socket %d", sock);
             continue;
         }
 
@@ -332,7 +332,7 @@ static void *video_thread(void *data) {
         }
 
         if (sock != INVALID_SOCKET) {
-            dlog("closing active video socket %d", sock);
+            ilog("closing active video socket %d", sock);
             net_close(sock);
             sock = INVALID_SOCKET;
             adb_forward_remove_all(NULL);
@@ -417,7 +417,7 @@ static void *audio_thread(void *data) {
                 }
 
                 plugin->audio_running = false;
-                dlog("closing failed audio socket %d", sock);
+                ilog("closing failed audio socket %d", sock);
                 net_close(sock);
                 sock = INVALID_SOCKET;
                 goto LOOP;
@@ -427,7 +427,7 @@ static void *audio_thread(void *data) {
             if (!plugin->video_running)
                 goto LOOP;
 
-            if ((sock = connect(plugin)) <= 0)
+            if ((sock = connect(plugin)) == INVALID_SOCKET)
                 goto LOOP;
 
             if (net_send_all(sock, audio_req, sizeof(AUDIO_REQ)-1) <= 0) {
@@ -438,7 +438,7 @@ static void *audio_thread(void *data) {
             }
 
             plugin->audio_running = true;
-            dlog("starting audio via socket %d", sock);
+            ilog("starting audio via socket %d", sock);
             continue;
         }
 
@@ -448,7 +448,7 @@ static void *audio_thread(void *data) {
         }
 
         if (sock != INVALID_SOCKET) {
-            dlog("closing active audio socket %d", sock);
+            ilog("closing active audio socket %d", sock);
             net_close(sock);
             sock = INVALID_SOCKET;
         }
@@ -523,7 +523,7 @@ static void *plugin_create(obs_data_t *settings, obs_source_t *source) {
     plugin->iosMgr = new USBMux();
     plugin->deactivateWNS = obs_data_get_bool(settings, OPT_DEACTIVATE_WNS);
     plugin->activated = obs_data_get_bool(settings, OPT_IS_ACTIVATED);
-    dlog("activated=%d, deactivateWNS=%d, is_showing=%d",
+    ilog("activated=%d, deactivateWNS=%d, is_showing=%d",
         plugin->activated, plugin->deactivateWNS, plugin->is_showing);
 
     if (plugin->activated) {
@@ -531,7 +531,7 @@ static void *plugin_create(obs_data_t *settings, obs_source_t *source) {
         plugin->device_info.ip = obs_data_get_string(settings, OPT_CONNECT_IP);
         plugin->device_info.port = (int) obs_data_get_int(settings, OPT_CONNECT_PORT);
         plugin->device_info.type = (DeviceType) obs_data_get_int(settings, OPT_ACTIVE_DEV_TYPE);
-        dlog("device_info.id=%s device_info.ip=%s device_info.port=%d device_info.type=%d",
+        ilog("device_info.id=%s device_info.ip=%s device_info.port=%d device_info.type=%d",
             plugin->device_info.id, plugin->device_info.ip, plugin->device_info.port, plugin->device_info.type);
         if (plugin->device_info.type == DeviceType::NONE
             || plugin->device_info.port <= 0 || plugin->device_info.port > 65535
@@ -672,6 +672,7 @@ skip_usb_check:
     obs_data_set_int(settings, OPT_ACTIVE_DEV_TYPE, (long long) device_info->type);
     obs_data_set_bool(settings, OPT_IS_ACTIVATED, true);
     plugin->activated = true;
+    ilog("activated: id=%s type=%d ip=%s port=%d", device_info->id, device_info->type, device_info->ip, device_info->port);
 
 out:
     obs_property_set_enabled(cp, true);
@@ -693,7 +694,7 @@ static bool refresh_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
     obs_property_list_clear(p);
 
     if (!adbMgr || !iosMgr){
-        dlog("adbMgr=%p, iosMgr=%p in refresh_clicked", adbMgr, iosMgr);
+        ilog("adbMgr=%p, iosMgr=%p in refresh_clicked", adbMgr, iosMgr);
         goto out;
     }
 
@@ -724,7 +725,7 @@ static void plugin_update(void *data, obs_data_t *settings) {
     bool sync_av = obs_data_get_bool(settings, OPT_SYNC_AV);
     bool activated = obs_data_get_bool(settings, OPT_IS_ACTIVATED);
 
-    dlog("plugin_udpate: activated=%d (actual=%d) sync_av=%d", plugin->activated, activated, sync_av);
+    ilog("plugin_udpate: activated=%d (actual=%d) sync_av=%d", plugin->activated, activated, sync_av);
     obs_source_set_async_decoupled(plugin->source, !sync_av);
 
     // handle [Cancel] case
@@ -742,7 +743,7 @@ static obs_properties_t *plugin_properties(void *data) {
     usbmuxd_device_info_t* iosdevice;
     int is_offline;
     bool activated = obs_data_get_bool(settings, OPT_IS_ACTIVATED);
-    dlog("plugin_properties: activated=%d (actual=%d)", plugin->activated, activated);
+    ilog("plugin_properties: activated=%d (actual=%d)", plugin->activated, activated);
 
     obs_properties_add_list(ppts, OPT_DEVICE_LIST, TEXT_DEVICE, OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
     cp = obs_properties_get(ppts, OPT_DEVICE_LIST);

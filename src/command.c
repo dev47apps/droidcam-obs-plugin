@@ -159,7 +159,7 @@ bool AdbMgr::Reload(void) {
     const char *ro[] = {"reconnect", "offline"};
     proc = adb_execute(NULL, ro, ARRAY_LEN(ro), NULL, 0);
     if (!process_check_success(proc, "adb r.o.")) {
-        dlog("adb r.o. failed");
+        elog("adb r.o. failed");
     }
 
     const char *dd[] = {"devices"};
@@ -324,7 +324,7 @@ int USBMux::Reload(void) {
     deviceCount = usbmuxd_get_device_list(&deviceList);
     dlog("USBMux: Reload: %d devices", deviceCount);
     if (deviceCount < 0) {
-        dlog("Could not get iOS device list, usbmuxd not running?");
+        elog("Could not get iOS device list, usbmuxd not running?");
         deviceCount = 0;
         return 0;
     }

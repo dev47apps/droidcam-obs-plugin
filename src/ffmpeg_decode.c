@@ -90,7 +90,7 @@ int ffmpeg_decode_init(struct ffmpeg_decode *decode, uint8_t* header, enum AVCod
 		}
 
 		int sr_idx = ((header[0] << 1) | (header[1] >> 7)) & 0x1F;
-		dlog("sr_idx=%d [0x%2x 0x%2x]", sr_idx, header[0], header[1]);
+		ilog("sr_idx=%d [0x%2x 0x%2x]", sr_idx, header[0], header[1]);
 		if (sr_idx < 0 || sr_idx >= (int)(sizeof(aac_frequencies) / sizeof(int))) {
 			blog(LOG_ERROR, "failed to parse AAC header, sr_idx=%d [0x%2x 0x%2x]", sr_idx, header[0], header[1]);
 			return -1;
@@ -99,7 +99,7 @@ int ffmpeg_decode_init(struct ffmpeg_decode *decode, uint8_t* header, enum AVCod
 		decode->decoder->profile = FF_PROFILE_AAC_LOW;
 		decode->decoder->channel_layout = AV_CH_LAYOUT_MONO;
 		decode->decoder->channels = 1;
-		dlog("audio sample_rate=%d", decode->decoder->sample_rate);
+		ilog("audio sample_rate=%d", decode->decoder->sample_rate);
 	}
 
 #ifdef USE_NEW_HARDWARE_CODEC_METHOD
