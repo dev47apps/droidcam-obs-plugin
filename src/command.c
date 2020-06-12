@@ -130,7 +130,12 @@ AdbMgr::AdbMgr() {
     int i = 0;
     for (; i < DEVICES_LIMIT; i++) deviceList[i] = NULL;
 
+#ifdef _WIN32
    if (!FileExists(adb_exe)) {
+#else
+    if (system("adb version > /dev/null 2>&1")) {
+#endif
+
         elog("adb.exe not available\n");
         disabled = 1;
         return;
@@ -145,7 +150,7 @@ AdbMgr::AdbMgr() {
 AdbMgr::~AdbMgr() {
     int i = 0;
     const char *ss[] = {"kill-server"};
-    process_t proc = adb_execute(NULL, ss, ARRAY_LEN(ss), NULL, 0);
+    adb_execute(NULL, ss, ARRAY_LEN(ss), NULL, 0);
     for (; i < DEVICES_LIMIT; i++) if(deviceList[i]) delete deviceList[i];
 }
 
@@ -154,7 +159,7 @@ bool AdbMgr::Reload(void) {
     AdbDevice dev;
     process_t proc;
     if (disabled) // adb.exe was not found
-        return FALSE;
+        return false;
 
     const char *ro[] = {"reconnect", "offline"};
     proc = adb_execute(NULL, ro, ARRAY_LEN(ro), NULL, 0);
@@ -279,12 +284,15 @@ adb_forward_remove_all(const char *serial) {
 // MARK: USBMUX
 
 USBMux::USBMux() {
-    const char *usbmuxd_dll = PLUGIN_DATA_DIR "\\usbmuxd.dll";
+#ifndef __APPLE__
+    const char *usbmuxd_dll = PLUGIN_DATA_DIR PATH_SEPARATOR "usbmuxd.dll";
     if (!FileExists(usbmuxd_dll)) {
         elog("iOS support not available\n");
         hModule = NULL;
         return;
     }
+#endif
+
 #ifdef _WIN32
     hModule = LoadLibrary(usbmuxd_dll);
     if (!hModule) {

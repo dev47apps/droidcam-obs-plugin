@@ -7,7 +7,7 @@
 #define xlog(log_level, format, ...) \
         blog(log_level, "[DroidCamOBS] " format, ##__VA_ARGS__)
 
-#define dlog(format, ...) xlog(LOG_DEBUG, format, ##__VA_ARGS__)
+#define dlog(format, ...) xlog(LOG_INFO, format, ##__VA_ARGS__)
 #define ilog(format, ...) xlog(LOG_INFO, format, ##__VA_ARGS__)
 #define elog(format, ...) xlog(LOG_WARNING, format, ##__VA_ARGS__)
 

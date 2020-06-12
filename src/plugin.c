@@ -818,7 +818,6 @@ bool obs_module_load(void) {
     obs_register_source(&droidcam_obs_info);
     return true;
 }
-
 /*
 void obs_module_unload(void) {
     if (libvlc) libvlc_release_(libvlc);

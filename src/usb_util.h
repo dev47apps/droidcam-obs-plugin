@@ -3,7 +3,6 @@
 #define __USB_UTIL_H__
 
 #define DEVICES_LIMIT 8
-#define PLUGIN_DATA_DIR "..\\..\\data\\obs-plugins\\droidcam-obs"
 
 struct AdbDevice {
     char serial[80];

@@ -2,7 +2,6 @@
 
 DATA_DIR = data
 BUILD_DIR = build
-ARCH = $(shell getconf LONG_BIT)
 
 RM       = rm
 CXX      = g++
@@ -13,6 +12,10 @@ LDD_LIBS = -lobs-frontend-api
 LDD_FLAG =
 LIB_DLL  = $(BUILD_DIR)/droidcam-obs.so
 SRC      = $(shell ls src/*.c src/sys/unix/*.c)
+
+ifeq "$(RELEASE)" "1"
+	CXXFLAGS += -DRELEASE=1
+endif
 
 ifeq ($(OS),Windows_NT)
 lol:
@@ -28,9 +31,6 @@ ifeq ($(UNAME),Linux)
 	INCLUDES += -I/usr/include/obs
 	LDD_LIBS += -lobs
 	LDD_FLAG += -shared
-
-	PLUGIN_INSTALL_DIR = ~/.config/obs-studio/plugins
-	PLUGIN_BIN_DIR     = $(BUILD_DIR)/bin/$(ARCH)bit
 
 run:
 	rm ~/.config/obs-studio/logs/* && obs

@@ -15,6 +15,7 @@
 # define strtok_r strtok_s
 # define snprintf sprintf_s
 # define PATH_SEPARATOR '\\'
+# define PLUGIN_DATA_DIR "..\\..\\data\\obs-plugins\\droidcam-obs"
 # define PRIexitcode "lu"
 // <https://stackoverflow.com/a/44383330/1987178>
 # ifdef _WIN64
@@ -33,8 +34,10 @@ static inline bool FileExists(const char *path) {
 #else
 
 # include <sys/types.h>
+# include <ctype.h>
 # include <unistd.h>
-# define PATH_SEPARATOR '/'
+# define PATH_SEPARATOR "/"
+# define PLUGIN_DATA_DIR ""
 # define PRIsizet "zu"
 # define PRIexitcode "d"
 # define PROCESS_NONE -1
