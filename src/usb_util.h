@@ -22,11 +22,9 @@ struct AdbMgr {
 
     inline void ResetIter(void){ iter = 0; }
     AdbDevice* NextDevice(int *is_offline);
+    bool AddForward(const char *serial, int local_port, int remote_port);
+    void ClearForwards(const char *serial);
 };
-
-bool adb_forward(const char *serial, int local_port, int remote_port);
-void adb_forward_remove_all(const char *serial);
-
 
 #include "usbmuxd.h"
 

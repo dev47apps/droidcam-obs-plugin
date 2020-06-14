@@ -136,7 +136,7 @@ AdbMgr::AdbMgr() {
     if (system("adb version > /dev/null 2>&1")) {
 #endif
 
-        elog("adb.exe not available\n");
+        elog("adb.exe not available");
         disabled = 1;
         return;
     }
@@ -262,9 +262,13 @@ AdbDevice* AdbMgr::NextDevice(int *is_offline) {
 }
 
 bool
-adb_forward(const char *serial, int local_port, int remote_port) {
+AdbMgr::AddForward(const char *serial, int local_port, int remote_port) {
     char local[32];
     char remote[32];
+
+    if (disabled) // adb.exe was not found
+        return false;
+
     snprintf(local, 32, "tcp:%d", local_port);
     snprintf(remote, 32, "tcp:%d", remote_port);
 
@@ -273,8 +277,10 @@ adb_forward(const char *serial, int local_port, int remote_port) {
     return process_check_success(proc, "adb fwd");
 }
 
-void
-adb_forward_remove_all(const char *serial) {
+void AdbMgr::ClearForwards(const char *serial) {
+    if (disabled) // adb.exe was not found
+        return;
+
     const char *const cmd[] = {"forward", "--remove-all"};
     process_t proc = adb_execute(serial, cmd, ARRAY_LEN(cmd), NULL, 0);
     process_check_success(proc, "adb fwd clear");
@@ -287,7 +293,7 @@ USBMux::USBMux() {
 #ifndef __APPLE__
     const char *usbmuxd_dll = PLUGIN_DATA_DIR PATH_SEPARATOR "usbmuxd.dll";
     if (!FileExists(usbmuxd_dll)) {
-        elog("iOS support not available\n");
+        elog("iOS support not available");
         hModule = NULL;
         return;
     }

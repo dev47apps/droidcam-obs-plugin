@@ -138,12 +138,12 @@ static socket_t connect(struct droidcam_obs_plugin *plugin) {
                 if (adb_port > ADB_PORT_LAST) {
                     elog("warning: excessive adb port usage!");
                     adb_port = ADB_PORT_START;
-                    adb_forward_remove_all(NULL);
+                    adbMgr->ClearForwards(NULL);
                 }
 
                 port = adb_port++;
                 dlog("ADB: mapping %d -> %d\n", port, device_info->port);
-                if (!adb_forward(dev->serial, port, device_info->port)) {
+                if (!adbMgr->AddForward(dev->serial, port, device_info->port)) {
                     elog("adb_forward failed");
                     goto out;
                 }
@@ -152,7 +152,7 @@ static socket_t connect(struct droidcam_obs_plugin *plugin) {
                 if (rc > 0) return rc;
 
                 elog("adb connect failed");
-                adb_forward_remove_all(dev->serial);
+                adbMgr->ClearForwards(dev->serial);
                 goto out;
             }
         }
@@ -335,7 +335,6 @@ static void *video_thread(void *data) {
             ilog("closing active video socket %d", sock);
             net_close(sock);
             sock = INVALID_SOCKET;
-            adb_forward_remove_all(NULL);
         }
 
         if (ffmpeg_decode_valid(&plugin->video_decoder)) {
@@ -698,7 +697,7 @@ static bool refresh_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
         goto out;
     }
 
-    adb_forward_remove_all(NULL);
+    adbMgr->ClearForwards(NULL);
     adbMgr->Reload();
     adbMgr->ResetIter();
     while ((dev = adbMgr->NextDevice(&is_offline)) != NULL) {
