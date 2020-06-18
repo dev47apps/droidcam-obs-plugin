@@ -290,7 +290,6 @@ static void *video_thread(void *data) {
     droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
     socket_t sock = INVALID_SOCKET;
     const char *video_req = VIDEO_REQ;
-    int rate_limit = 0;
 
     while (os_event_try(plugin->stop_signal) == EAGAIN) {
         if (plugin->activated && plugin->is_showing) {
@@ -303,21 +302,19 @@ static void *video_thread(void *data) {
                 ilog("closing failed video socket %d", sock);
                 net_close(sock);
                 sock = INVALID_SOCKET;
-                goto LOOP;
+                goto SLOW_LOOP;
             }
 
-            rate_limit ++;
-            if (rate_limit % FPS != 0)
-                goto LOOP;
-
-            rate_limit = 0;
             if ((sock = connect(plugin)) == INVALID_SOCKET)
-                goto LOOP;
+                goto SLOW_LOOP;
 
             if (net_send_all(sock, video_req, sizeof(VIDEO_REQ)-1) <= 0) {
                 elog("send(/video) failed");
                 net_close(sock);
                 sock = INVALID_SOCKET;
+
+SLOW_LOOP:
+                os_sleep_ms(MILLI_SEC * 2);
                 goto LOOP;
             }
 
@@ -419,7 +416,7 @@ static void *audio_thread(void *data) {
                 ilog("closing failed audio socket %d", sock);
                 net_close(sock);
                 sock = INVALID_SOCKET;
-                goto LOOP;
+                goto SLOW_LOOP;
             }
 
             // connect audio only after video works
@@ -427,12 +424,15 @@ static void *audio_thread(void *data) {
                 goto LOOP;
 
             if ((sock = connect(plugin)) == INVALID_SOCKET)
-                goto LOOP;
+                goto SLOW_LOOP;
 
             if (net_send_all(sock, audio_req, sizeof(AUDIO_REQ)-1) <= 0) {
                 elog("send(/audio) failed");
                 net_close(sock);
                 sock = INVALID_SOCKET;
+
+SLOW_LOOP:
+                os_sleep_ms(MILLI_SEC * 2);
                 goto LOOP;
             }
 
