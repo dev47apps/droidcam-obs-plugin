@@ -45,7 +45,7 @@ static bool has_hw_type(AVCodec *c, enum AVHWDeviceType type)
 	return false;
 }
 
-static void init_hw_decoder(struct ffmpeg_decode *d)
+static void init_hw_decoder(FFMpegDecoder *d)
 {
 	enum AVHWDeviceType *priority = hw_priority;
 	AVBufferRef *hw_ctx = NULL;
@@ -66,7 +66,7 @@ static void init_hw_decoder(struct ffmpeg_decode *d)
 }
 #endif
 
-int ffmpeg_decode_init(struct ffmpeg_decode *decode, uint8_t* header, enum AVCodecID id, bool use_hw)
+int FFMpegDecoder::init(uint8_t* header, enum AVCodecID id, bool use_hw)
 {
 	int ret;
 	// av_log_set_level(AV_LOG_DEBUG);
@@ -74,13 +74,13 @@ int ffmpeg_decode_init(struct ffmpeg_decode *decode, uint8_t* header, enum AVCod
 	error// avcodec_register_all();
 #endif
 
-	decode->codec = avcodec_find_decoder(id);
-	if (!decode->codec)
+	codec = avcodec_find_decoder(id);
+	if (!codec)
 		return -1;
 
-	decode->decoder = avcodec_alloc_context3(decode->codec);
+	decoder = avcodec_alloc_context3(codec);
 
-	decode->decoder->thread_count = 0;
+	decoder->thread_count = 0;
 	if (id == AV_CODEC_ID_AAC) {
 		// https://wiki.multimedia.cx/index.php/MPEG-4_Audio
 		static int aac_frequencies[] = {96000,88200,64000,48000,44100,32000,24000,22050,16000,12000,11025,8000};
@@ -95,51 +95,49 @@ int ffmpeg_decode_init(struct ffmpeg_decode *decode, uint8_t* header, enum AVCod
 			blog(LOG_ERROR, "failed to parse AAC header, sr_idx=%d [0x%2x 0x%2x]", sr_idx, header[0], header[1]);
 			return -1;
 		}
-		decode->decoder->sample_rate = aac_frequencies[sr_idx];
-		decode->decoder->profile = FF_PROFILE_AAC_LOW;
-		decode->decoder->channel_layout = AV_CH_LAYOUT_MONO;
-		decode->decoder->channels = 1;
-		ilog("audio sample_rate=%d", decode->decoder->sample_rate);
+		decoder->sample_rate = aac_frequencies[sr_idx];
+		decoder->profile = FF_PROFILE_AAC_LOW;
+		decoder->channel_layout = AV_CH_LAYOUT_MONO;
+		// also hard coded in decode_audio_frame
+		decoder->channels = 1;
+		ilog("audio sample_rate=%d", decoder->sample_rate);
 	}
 
 #ifdef USE_NEW_HARDWARE_CODEC_METHOD
-	if (use_hw) init_hw_decoder(decode);
+	if (use_hw) init_hw_decoder(this);
 #else
 	(void)use_hw;
 #endif
 
-	ret = avcodec_open2(decode->decoder, decode->codec, NULL);
+	ret = avcodec_open2(decoder, codec, NULL);
 	if (ret < 0) {
-		ffmpeg_decode_free(decode);
 		return ret;
 	}
 
-	// if (decode->codec->capabilities & CODEC_CAP_TRUNC)
-	// 	decode->decoder->flags |= CODEC_FLAG_TRUNC;
+	// if (codec->capabilities & CODEC_CAP_TRUNC)
+	// 	decoder->flags |= CODEC_FLAG_TRUNC;
 
-	decode->decoder->flags |= AV_CODEC_FLAG_LOW_DELAY;
-	decode->decoder->flags2 |= AV_CODEC_FLAG2_FAST;
-	// decode->decoder->flags2 |= AV_CODEC_FLAG2_CHUNKS;
+	decoder->flags |= AV_CODEC_FLAG_LOW_DELAY;
+	decoder->flags2 |= AV_CODEC_FLAG2_FAST;
+	// decoder->flags2 |= AV_CODEC_FLAG2_CHUNKS;
+	ready = true;
 	return 0;
 }
 
-void ffmpeg_decode_free(struct ffmpeg_decode *decode)
+FFMpegDecoder::~FFMpegDecoder(void)
 {
-	if (decode->hw_frame)
-		av_free(decode->hw_frame);
+	if (hw_frame)
+		av_free(hw_frame);
 
-	if (decode->decoder) {
-		avcodec_close(decode->decoder);
-		av_free(decode->decoder);
+	if (frame)
+		av_free(frame);
+
+	if (decoder) {
+		avcodec_close(decoder);
+		av_free(decoder);
 	}
 
-	if (decode->frame)
-		av_free(decode->frame);
-
-	if (decode->packet_buffer)
-		bfree(decode->packet_buffer);
-
-	memset(decode, 0, sizeof(*decode));
+	Decoder::~Decoder();
 }
 
 static inline enum video_format convert_pixel_format(int f)
@@ -217,22 +215,41 @@ static inline enum speaker_layout convert_speaker_layout(uint8_t channels)
 	}
 }
 
-uint8_t* ffmpeg_decode_get_buffer(struct ffmpeg_decode *decode, int size)
+DataPacket* FFMpegDecoder::pull_empty_packet(size_t size)
 {
-	int new_size = size + INPUT_BUFFER_PADDING_SIZE;
-
-	if (decode->packet_size < (size_t)new_size) {
-		decode->packet_buffer = (uint8_t*)brealloc(decode->packet_buffer, new_size);
-		decode->packet_size   = new_size;
-	}
-
-	memset(decode->packet_buffer + size, 0, INPUT_BUFFER_PADDING_SIZE);
-	return decode->packet_buffer;
+	size_t new_size = size + INPUT_BUFFER_PADDING_SIZE;
+	DataPacket* packet = Decoder::pull_empty_packet(new_size);
+	memset(packet->data + size, 0, INPUT_BUFFER_PADDING_SIZE);
+	return packet;
 }
 
-bool ffmpeg_decode_video(struct ffmpeg_decode *decode, uint64_t *pts, int size,
-			enum video_range_type range,
-			struct obs_source_frame2 *frame, bool *got_output)
+void FFMpegDecoder::push_ready_packet(DataPacket* packet)
+{
+	if (catchup) {
+		if (decodeQueue.items.size() > 0){
+			recieveQueue.add_item(packet);
+			return;
+		}
+		if (codec->id == AV_CODEC_ID_H264 
+			&& !obs_avc_keyframe(packet->data, packet->used))
+		{
+			dlog("discard non key-frame");
+			recieveQueue.add_item(packet);
+			return;
+		}
+
+		ilog("decoder catchup: decodeQueue: %ld recieveQueue: %ld", decodeQueue.items.size(), recieveQueue.items.size());
+		catchup = false;
+	}
+
+	decodeQueue.add_item(packet);
+	if (decodeQueue.items.size() > 24) {
+		catchup = true;
+	}
+}
+
+bool FFMpegDecoder::decode_video(struct obs_source_frame2* obs_frame, DataPacket* data_packet,
+		bool *got_output)
 {
 	AVPacket packet = {0};
 	int got_frame = false;
@@ -241,32 +258,32 @@ bool ffmpeg_decode_video(struct ffmpeg_decode *decode, uint64_t *pts, int size,
 	*got_output = false;
 
 	av_init_packet(&packet);
-	packet.data = decode->packet_buffer;
-	packet.size = size;
-	packet.pts = (*pts == NO_PTS) ? AV_NOPTS_VALUE : *pts;
+	packet.data = data_packet->data;
+	packet.size = data_packet->used;
+	packet.pts = (data_packet->pts == NO_PTS) ? AV_NOPTS_VALUE : data_packet->pts;
 
-	if (// decode->codec->id == AV_CODEC_ID_H264 &&
-		obs_avc_keyframe(packet.data, (size_t)packet.size))	{
+	if (// codec->id == AV_CODEC_ID_H264 &&
+		obs_avc_keyframe(data_packet->data, data_packet->used))	{
 		packet.flags |= AV_PKT_FLAG_KEY;
 	}
 
-	if (!decode->frame) {
-		decode->frame = av_frame_alloc();
-		if (!decode->frame)
+	if (!frame) {
+		frame = av_frame_alloc();
+		if (!frame)
 			return false;
 
-		if (decode->hw && !decode->hw_frame) {
-			decode->hw_frame = av_frame_alloc();
-			if (!decode->hw_frame)
+		if (hw && !hw_frame) {
+			hw_frame = av_frame_alloc();
+			if (!hw_frame)
 				return false;
 		}
 	}
 
-	out_frame = decode->hw ? decode->hw_frame : decode->frame;
+	out_frame = hw ? hw_frame : frame;
 
-	ret = avcodec_send_packet(decode->decoder, &packet);
+	ret = avcodec_send_packet(decoder, &packet);
 	if (ret == 0) {
-		ret = avcodec_receive_frame(decode->decoder, out_frame);
+		ret = avcodec_receive_frame(decoder, out_frame);
 	}
 
 	got_frame = (ret == 0);
@@ -280,8 +297,8 @@ bool ffmpeg_decode_video(struct ffmpeg_decode *decode, uint64_t *pts, int size,
 		return true;
 
 #ifdef USE_NEW_HARDWARE_CODEC_METHOD
-	if (got_frame && decode->hw) {
-		ret = av_hwframe_transfer_data(decode->frame, out_frame, 0);
+	if (got_frame && hw) {
+		ret = av_hwframe_transfer_data(frame, out_frame, 0);
 		if (ret < 0) {
 			return false;
 		}
@@ -289,22 +306,18 @@ bool ffmpeg_decode_video(struct ffmpeg_decode *decode, uint64_t *pts, int size,
 #endif
 
 	for (int i = 0; i < MAX_AV_PLANES; i++) {
-		frame->data[i] = decode->frame->data[i];
-		frame->linesize[i] = decode->frame->linesize[i];
+		obs_frame->data[i]     = frame->data[i];
+		obs_frame->linesize[i] = frame->linesize[i];
 	}
 
-	frame->format = convert_pixel_format(decode->frame->format);
+	enum video_range_type range =
+		(frame->color_range == AVCOL_RANGE_JPEG)
+		? VIDEO_RANGE_FULL : VIDEO_RANGE_PARTIAL;
 
-	if (range == VIDEO_RANGE_DEFAULT) {
-		range = (decode->frame->color_range == AVCOL_RANGE_JPEG)
-				? VIDEO_RANGE_FULL
-				: VIDEO_RANGE_PARTIAL;
-	}
-
-	if (range != frame->range) {
+	if (range != obs_frame->range) {
 		const bool success = video_format_get_parameters(
-			VIDEO_CS_601, range, frame->color_matrix,
-			frame->color_range_min, frame->color_range_max);
+			VIDEO_CS_601, range, obs_frame->color_matrix,
+			obs_frame->color_range_min, obs_frame->color_range_max);
 		if (!success) {
 			blog(LOG_ERROR,
 				"Failed to get video format "
@@ -313,22 +326,25 @@ bool ffmpeg_decode_video(struct ffmpeg_decode *decode, uint64_t *pts, int size,
 			return false;
 		}
 
-		frame->range = range;
+		obs_frame->range = range;
 	}
 
-	*pts = decode->frame->pts;
-	frame->width = decode->frame->width;
-	frame->height = decode->frame->height;
-	frame->flip = false;
+	data_packet->pts = frame->pts;
+	obs_frame->width = frame->width;
+	obs_frame->height = frame->height;
+	obs_frame->flip = false;
 
-	if (frame->format == VIDEO_FORMAT_NONE)
-		return false;
+	if (obs_frame->format == VIDEO_FORMAT_NONE) {
+		obs_frame->format = convert_pixel_format(frame->format);
+		if (obs_frame->format == VIDEO_FORMAT_NONE)
+			return false;
+	}
 
 	*got_output = true;
 	return true;
 }
 
-bool ffmpeg_decode_audio(struct ffmpeg_decode *decode, struct obs_source_audio *audio, bool *got_output, int size)
+bool FFMpegDecoder::decode_audio(struct obs_source_audio* obs_frame, DataPacket* data_packet, bool *got_output)
 {
 	AVPacket packet = {0};
 	int got_frame = false;
@@ -336,18 +352,19 @@ bool ffmpeg_decode_audio(struct ffmpeg_decode *decode, struct obs_source_audio *
 	*got_output = false;
 
 	av_init_packet(&packet);
-	packet.data = decode->packet_buffer;
-	packet.size = size;
+	packet.data = data_packet->data;
+	packet.size = data_packet->used;
+	packet.pts = (data_packet->pts == NO_PTS) ? AV_NOPTS_VALUE : data_packet->pts;
 
-	if (!decode->frame) {
-		decode->frame = av_frame_alloc();
-		if (!decode->frame)
+	if (!frame) {
+		frame = av_frame_alloc();
+		if (!frame)
 			return false;
 	}
 
-	ret = avcodec_send_packet(decode->decoder, &packet);
+	ret = avcodec_send_packet(decoder, &packet);
 	if (ret == 0)
-		ret = avcodec_receive_frame(decode->decoder, decode->frame);
+		ret = avcodec_receive_frame(decoder, frame);
 
 	got_frame = (ret == 0);
 
@@ -361,16 +378,17 @@ bool ffmpeg_decode_audio(struct ffmpeg_decode *decode, struct obs_source_audio *
 		return true;
 
 	for (size_t i = 0; i < MAX_AV_PLANES; i++)
-		audio->data[i] = decode->frame->data[i];
+		obs_frame->data[i] = frame->data[i];
 
-	// TODO optimize, do once per session ?
-	audio->samples_per_sec = decode->frame->sample_rate;
-	audio->format = convert_sample_format(decode->frame->format);
-	audio->speakers = convert_speaker_layout((uint8_t)decode->decoder->channels);
-	audio->frames = decode->frame->nb_samples;
+	obs_frame->samples_per_sec = frame->sample_rate;
+	obs_frame->frames = frame->nb_samples;
+	obs_frame->speakers = SPEAKERS_MONO;
 
-	if (audio->format == AUDIO_FORMAT_UNKNOWN)
-		return false;
+	if (obs_frame->format == AUDIO_FORMAT_UNKNOWN) {
+		obs_frame->format = convert_sample_format(frame->format);
+		if (obs_frame->format == AUDIO_FORMAT_UNKNOWN)
+			return false;
+	}
 
 	*got_output = true;
 	return true;

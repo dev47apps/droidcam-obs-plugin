@@ -151,6 +151,12 @@ net_recv(socket_t sock, void *buf, size_t len) {
 }
 
 ssize_t
+net_recv_peek(socket_t sock) {
+    char buf[4];
+    return recv(sock, buf, 1, MSG_PEEK);
+}
+
+ssize_t
 net_recv_all(socket_t sock, void *buf, size_t len) {
 #if _WIN32
     return recv(sock, (char*)buf, len, MSG_WAITALL);

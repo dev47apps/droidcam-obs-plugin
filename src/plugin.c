@@ -18,17 +18,19 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <util/threading.h>
 #include <util/platform.h>
 
-#include "queue.h"
-#include "net.h"
-#include "buffer_util.h"
-#include "usb_util.h"
 #include "plugin.h"
 #include "plugin_properties.h"
 #include "ffmpeg_decode.h"
+#include "net.h"
+#include "buffer_util.h"
+#include "usb_util.h"
 
+#define VERSION_TEXT "v0.2"
 #define FPS 25
 #define MILLI_SEC 1000
 #define NANO_SEC  1000000000
+
+#define PLUGIN_RUNNING() (os_event_try(plugin->stop_signal) == EAGAIN)
 
 enum class Action {
     None,
@@ -51,11 +53,13 @@ struct active_device_info {
 struct droidcam_obs_plugin {
     AdbMgr *adbMgr;
     USBMux *iosMgr;
+    Decoder* video_decoder;
+    Decoder* audio_decoder;
     obs_source_t *source;
     os_event_t *stop_signal;
     pthread_t audio_thread;
     pthread_t video_thread;
-    pthread_t worker_thread;
+    pthread_t video_decode_thread;
     enum video_range_type range;
     bool is_showing;
     bool activated;
@@ -66,13 +70,21 @@ struct droidcam_obs_plugin {
     struct active_device_info device_info;
     struct obs_source_audio obs_audio_frame;
     struct obs_source_frame2 obs_video_frame;
-    struct ffmpeg_decode video_decoder;
-    struct ffmpeg_decode audio_decoder;
     uint64_t time_start;
 
-    queue<Action> action_queue;
+    //Queue<Action> actionQueue;
 };
 
+/* TODO and squash
+os_performance_token_t* perf_token;
+if (s->perf_token) {
+    os_end_high_performance(s->perf_token);
+}
+s->perf_token = os_request_high_performance("NDI Receiver Thread");
+...
+os_end_high_performance(s->perf_token);
+s->perf_token = NULL;
+*/
 #define ADB_PORT_START 7173
 #define ADB_PORT_LAST  7203
 int adb_port = ADB_PORT_START;
@@ -179,54 +191,60 @@ out:
 
 #define MAXCONFIG 1024
 #define MAXPACKET 1024 * 1024
-static int read_frame(struct ffmpeg_decode *decoder, uint64_t *pts, socket_t sock, int *has_config) {
+static DataPacket*
+read_frame(Decoder *decoder, socket_t sock, int *has_config)
+{
     uint8_t header[HEADER_SIZE];
     uint8_t config[MAXCONFIG];
     size_t r;
     size_t len, config_len = 0;
+    uint64_t pts;
 
 AGAIN:
     r = net_recv_all(sock, header, HEADER_SIZE);
     if (r != HEADER_SIZE) {
         elog("read header recv returned %ld", r);
-        return 0;
+        return NULL;
     }
 
-    *pts = buffer_read64be(header);
+    pts = buffer_read64be(header);
     len = buffer_read32be(&header[8]);
-    // dlog("read_frame: header: pts=%llu len=%d", *pts, (int)len);
+    // dlog("read_frame: header: pts=%llu len=%ld", pts, len);
 
-    if (*pts == NO_PTS) {
+    if (pts == NO_PTS) {
         if (config_len != 0) {
              elog("double config ???");
-             return 0;
+             return NULL;
         }
 
         if ((int)len == -1) {
             elog("stop/error from app side");
-            return -1;
+            return NULL;
         }
 
         if (len == 0 || len > MAXCONFIG) {
             elog("config packet too large at %ld!", len);
-            return 0;
+            return NULL;
         }
 
         r = net_recv_all(sock, config, len);
         if (r != len) {
             elog("read config recv returned %ld", r);
-            return 0;
+            return NULL;
         }
+
         config_len = len;
         *has_config = 1;
         goto AGAIN;
     }
 
     if (len == 0 || len > MAXPACKET) {
-        return 0;
+        elog("data packet too large at %ld!", len);
+        return NULL;
     }
 
-    uint8_t *p = ffmpeg_decode_get_buffer(decoder, config_len + len);
+    DataPacket* data_packet = decoder->pull_empty_packet(config_len + len);
+    uint8_t *p = data_packet->data;
     if (config_len) {
         memcpy(p, config, config_len);
         p += config_len;
@@ -235,54 +253,101 @@ AGAIN:
     r = net_recv_all(sock, p, len);
     if (r != len) {
         elog("read_frame: read %ld bytes wanted %ld", r, len);
-        return 0;
+        decoder->push_empty_packet(data_packet);
+        return NULL;
     }
 
-    return config_len + len;
+    data_packet->pts = pts;
+    data_packet->used = config_len + len;
+    return data_packet;
+}
+
+static void *video_decode_thread(void *data) {
+    droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
+
+    Decoder *decoder = NULL;
+    DataPacket* data_packet = NULL;
+    bool got_output;
+
+    ilog("video_decode_thread start");
+
+    while (PLUGIN_RUNNING()) {
+        if ((decoder = plugin->video_decoder) == NULL || (data_packet = decoder->pull_ready_packet()) == NULL) {
+            os_sleep_ms(2);
+            continue;
+        }
+
+        if (decoder->failed)
+            goto LOOP;
+
+        if (!decoder->decode_video(&plugin->obs_video_frame, data_packet, &got_output)) {
+            elog("error decoding video");
+            decoder->failed = true;
+            goto LOOP;
+        }
+
+        if (got_output) {
+            plugin->obs_video_frame.timestamp = data_packet->pts * 100;
+            //if (flip) plugin->obs_video_frame.flip = !plugin->obs_video_frame.flip;
+    #if 0
+            dlog("output video: %dx%d %lu",
+                plugin->obs_video_frame.width,
+                plugin->obs_video_frame.height,
+                plugin->obs_video_frame.timestamp);
+    #endif
+            obs_source_output_video2(plugin->source, &plugin->obs_video_frame);
+        }
+
+LOOP:
+        decoder->push_empty_packet(data_packet);
+    }
+
+    ilog("video_decode_thread end");
+    return NULL;
 }
 
 static bool
-do_video_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
-    uint64_t pts;
-    struct ffmpeg_decode *decoder = &plugin->video_decoder;
+recv_video_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
+    Decoder *decoder = plugin->video_decoder;
 
-    if (ffmpeg_decode_valid(decoder) && decoder->codec->id != AV_CODEC_ID_H264) {
-        ffmpeg_decode_free(decoder);
-    }
-
-    if (!ffmpeg_decode_valid(decoder)) {
-        if (ffmpeg_decode_init_video(decoder, AV_CODEC_ID_H264) < 0) {
-            elog("could not initialize video decoder");
-            return false;
-        }
+    if (!decoder) {
+        ilog("init video decoder");
+        decoder = new FFMpegDecoder();
+        plugin->video_decoder = decoder;
     }
 
     int has_config = 0;
-    int len = read_frame(decoder, &pts, sock, &has_config);
-    if (len < 0) {
-        plugin->activated = false;
-        return false;
-    }
-    if (len == 0)
+    DataPacket* data_packet = read_frame(decoder, sock, &has_config);
+    if (!data_packet)
         return false;
 
-    bool got_output;
-    if (!ffmpeg_decode_video(decoder, &pts, len, VIDEO_RANGE_DEFAULT, &plugin->obs_video_frame, &got_output)) {
-        elog("error decoding video");
-        return false;
+    // All paths must do something with data_packet
+    if (has_config) {
+        if (decoder->ready) {
+            ilog("unexpected video config change while decoder is init'd");
+            decoder->failed = true;
+            goto FAILED;
+        }
+
+        bool use_hw = true; // FIXME optional
+        if (((FFMpegDecoder*)decoder)->init(NULL, AV_CODEC_ID_H264, use_hw) < 0) {
+            elog("could not initialize AVC decoder");
+            decoder->failed = true;
+            goto FAILED;
+        }
+
+        plugin->obs_video_frame.format = VIDEO_FORMAT_NONE;
     }
 
-    if (got_output) {
-        plugin->obs_video_frame.timestamp = pts * 100;
-        //if (flip) plugin->obs_video_frame.flip = !plugin->obs_video_frame.flip;
-#if 0
-        dlog("output video: %dx%d %lu",
-            plugin->obs_video_frame.width,
-            plugin->obs_video_frame.height,
-            plugin->obs_video_frame.timestamp);
-#endif
-        obs_source_output_video2(plugin->source, &plugin->obs_video_frame);
+FAILED:
+    // This should not happen, rather than causing a connection reset... idle
+    if (decoder->failed) {
+        dlog("discarding frame.. decoder failed");
+        decoder->push_empty_packet(data_packet);
+        return true;
     }
+
+    decoder->push_ready_packet(data_packet);
     return true;
 }
 
@@ -291,10 +356,11 @@ static void *video_thread(void *data) {
     socket_t sock = INVALID_SOCKET;
     const char *video_req = VIDEO_REQ;
 
-    while (os_event_try(plugin->stop_signal) == EAGAIN) {
+    ilog("video_thread start");
+    while (PLUGIN_RUNNING()) {
         if (plugin->activated && plugin->is_showing) {
             if (plugin->video_running) {
-                if (do_video_frame(plugin, sock)) {
+                if (recv_video_frame(plugin, sock)) {
                     continue;
                 }
 
@@ -328,21 +394,32 @@ SLOW_LOOP:
             plugin->video_running = false;
         }
 
+LOOP:
         if (sock != INVALID_SOCKET) {
             ilog("closing active video socket %d", sock);
             net_close(sock);
             sock = INVALID_SOCKET;
         }
 
-        if (ffmpeg_decode_valid(&plugin->video_decoder)) {
-            ffmpeg_decode_free(&plugin->video_decoder);
+        if (plugin->video_decoder) {
+            while (plugin->video_decoder->recieveQueue.items.size() < plugin->video_decoder->alloc_count
+            && PLUGIN_RUNNING()){
+                ilog("waiting for decode thread: %ld/%d",
+                    plugin->video_decoder->recieveQueue.items.size(),
+                    plugin->video_decoder->alloc_count);
+                os_sleep_ms(MILLI_SEC);
+            }
+
+            ilog("release video_decoder");
+            delete plugin->video_decoder;
+            plugin->video_decoder = NULL;
         }
 
-LOOP:
         obs_source_output_video2(plugin->source, NULL);
         os_sleep_ms(MILLI_SEC / FPS);
     }
 
+    ilog("video_thread end");
     plugin->video_running = false;
     if (sock != INVALID_SOCKET) net_close(sock);
     return NULL;
@@ -350,6 +427,7 @@ LOOP:
 
 static bool
 do_audio_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
+#if 0
     uint64_t pts;
     struct ffmpeg_decode *decoder = &plugin->audio_decoder;
 
@@ -363,8 +441,14 @@ do_audio_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
     if (len == 0)
         return false;
 
-    if (ffmpeg_decode_valid(decoder) && (decoder->codec->id != AV_CODEC_ID_AAC || has_config == 1)) {
+    // clean this up
+    if (has_config == 1 && ffmpeg_decode_valid(decoder)) {
+        uint8_t *header = (uint8_t *)malloc(len * sizeof(uint8_t));
+        memcpy(header, decoder->packet_buffer, len);
         ffmpeg_decode_free(decoder);
+        uint8_t *p = ffmpeg_decode_get_buffer(decoder, len);
+        memcpy(decoder->packet_buffer, header, len);
+        free(header);
     }
 
     if (!ffmpeg_decode_valid(decoder)) {
@@ -374,6 +458,7 @@ do_audio_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
         }
 
         // early out, dont pass config packet to decode
+        plugin->obs_audio_frame.format = AUDIO_FORMAT_UNKNOWN;
         return true;
     }
 
@@ -396,7 +481,7 @@ do_audio_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
         obs_source_output_audio(plugin->source, &plugin->obs_audio_frame);
         // return ((uint64_t)plugin->obs_audio_frame.frames * MILLI_SEC / (uint64_t)plugin->obs_audio_frame.samples_per_sec);
     }
-
+#endif
     return true;
 }
 
@@ -405,7 +490,7 @@ static void *audio_thread(void *data) {
     socket_t sock = INVALID_SOCKET;
     const char *audio_req = AUDIO_REQ;
 
-    while (os_event_try(plugin->stop_signal) == EAGAIN) {
+    while (PLUGIN_RUNNING()) {
         if (plugin->activated && plugin->is_showing && plugin->enable_audio) {
             if (plugin->audio_running) {
                 if (do_audio_frame(plugin, sock)) {
@@ -451,11 +536,11 @@ SLOW_LOOP:
             net_close(sock);
             sock = INVALID_SOCKET;
         }
-
+/* FIXME
         if (ffmpeg_decode_valid(&plugin->audio_decoder)) {
             ffmpeg_decode_free(&plugin->audio_decoder);
         }
-
+*/
 LOOP:
         os_sleep_ms(MILLI_SEC / FPS);
         if (plugin->enable_audio) obs_source_output_audio(plugin->source, NULL);
@@ -465,24 +550,7 @@ LOOP:
     if (sock != INVALID_SOCKET) net_close(sock);
     return NULL;
 }
-#if 0
-static void *worker_thread(void *data) {
-    droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
 
-    while (os_event_try(plugin->stop_signal) == EAGAIN) {
-        Action action = plugin->action_queue.next_item();
-        switch (action) {
-            case Action::None:
-            default:
-                break;
-        }
-
-        os_sleep_ms(MILLI_SEC / 10);
-    }
-
-    return NULL;
-}
-#endif
 static void plugin_destroy(void *data) {
     droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
 
@@ -492,18 +560,15 @@ static void plugin_destroy(void *data) {
             os_event_signal(plugin->stop_signal);
             pthread_join(plugin->video_thread, NULL);
             pthread_join(plugin->audio_thread, NULL);
-            //pthread_join(plugin->worker_thread, NULL);
+
+            pthread_join(plugin->video_decode_thread, NULL);
         }
 
         dlog("cleanup");
         os_event_destroy(plugin->stop_signal);
 
-        if (ffmpeg_decode_valid(&plugin->video_decoder))
-            ffmpeg_decode_free(&plugin->video_decoder);
-
-        if (ffmpeg_decode_valid(&plugin->audio_decoder))
-            ffmpeg_decode_free(&plugin->audio_decoder);
-
+        if (plugin->video_decoder) delete plugin->video_decoder;
+        if (plugin->audio_decoder) delete plugin->audio_decoder;
         delete plugin->adbMgr;
         delete plugin->iosMgr;
         delete plugin;
@@ -511,7 +576,7 @@ static void plugin_destroy(void *data) {
 }
 
 static void *plugin_create(obs_data_t *settings, obs_source_t *source) {
-    dlog("create(source=%p)", source);
+    ilog("create(source=%p) " VERSION_TEXT, source);
     obs_source_set_async_unbuffered(source, true);
 
     droidcam_obs_plugin *plugin = new droidcam_obs_plugin();
@@ -551,17 +616,16 @@ static void *plugin_create(obs_data_t *settings, obs_source_t *source) {
         return NULL;
     }
 
+    if (pthread_create(&plugin->video_decode_thread, NULL, video_decode_thread, plugin) != 0) {
+        plugin_destroy(plugin);
+        return NULL;
+    }
+
     if (pthread_create(&plugin->audio_thread, NULL, audio_thread, plugin) != 0) {
         plugin_destroy(plugin);
         return NULL;
     }
-/*
-XXX also join
-    if (pthread_create(&plugin->worker_thread, NULL, worker_thread, plugin) != 0) {
-        plugin_destroy(plugin);
-        return NULL;
-    }
-*/
+
     plugin->time_start = os_gettime_ns() / 100;
     return plugin;
 }

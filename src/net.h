@@ -31,6 +31,9 @@ ssize_t
 net_recv(socket_t sock, void *buf, size_t len);
 
 ssize_t
+net_recv_peek(socket_t sock);
+
+ssize_t
 net_recv_all(socket_t sock, void *buf, size_t len);
 
 ssize_t
