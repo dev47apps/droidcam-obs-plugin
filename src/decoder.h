@@ -59,7 +59,7 @@ struct Decoder {
     bool ready;
     bool failed;
 
-    ~Decoder(void) {
+    virtual ~Decoder(void) {
         DataPacket* packet;
         while ((packet = recieveQueue.next_item()) != NULL) {
             delete packet;
@@ -95,6 +95,7 @@ struct Decoder {
 
     virtual void push_ready_packet(DataPacket*) = 0;
     virtual bool decode_video(struct obs_source_frame2*, DataPacket*, bool *got_output) = 0;
+    virtual bool decode_audio(struct obs_source_audio*, DataPacket*, bool *got_output) = 0;
 };
 
 #endif

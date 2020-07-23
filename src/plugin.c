@@ -65,6 +65,7 @@ struct droidcam_obs_plugin {
     bool activated;
     bool deactivateWNS;
     bool enable_audio;
+    bool use_hw;
     bool audio_running;
     bool video_running;
     struct active_device_info device_info;
@@ -311,7 +312,7 @@ recv_video_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
     Decoder *decoder = plugin->video_decoder;
 
     if (!decoder) {
-        ilog("init video decoder");
+        ilog("create video decoder");
         decoder = new FFMpegDecoder();
         plugin->video_decoder = decoder;
     }
@@ -329,7 +330,7 @@ recv_video_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
             goto FAILED;
         }
 
-        bool use_hw = true; // FIXME optional
+        bool use_hw = plugin->use_hw;
         if (((FFMpegDecoder*)decoder)->init(NULL, AV_CODEC_ID_H264, use_hw) < 0) {
             elog("could not initialize AVC decoder");
             decoder->failed = true;
@@ -339,9 +340,9 @@ recv_video_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
         plugin->obs_video_frame.format = VIDEO_FORMAT_NONE;
     }
 
-FAILED:
     // This should not happen, rather than causing a connection reset... idle
     if (decoder->failed) {
+    FAILED:
         dlog("discarding frame.. decoder failed");
         decoder->push_empty_packet(data_packet);
         return true;
@@ -427,49 +428,53 @@ LOOP:
 
 static bool
 do_audio_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
-#if 0
-    uint64_t pts;
-    struct ffmpeg_decode *decoder = &plugin->audio_decoder;
+    FFMpegDecoder *decoder = (FFMpegDecoder*)plugin->audio_decoder;
+    if (!decoder) {
+        ilog("create audio decoder");
+        decoder = new FFMpegDecoder();
+        plugin->audio_decoder = decoder;
+    }
 
-    // aac decoder doesnt like parsing the header, pass to our init
     int has_config = 0;
-    int len = read_frame(decoder, &pts, sock, &has_config);
-    if (len < 0) {
-        plugin->activated = false;
-        return false;
-    }
-    if (len == 0)
+    bool got_output;
+    DataPacket* data_packet = read_frame(decoder, sock, &has_config);
+    if (!data_packet)
         return false;
 
-    // clean this up
-    if (has_config == 1 && ffmpeg_decode_valid(decoder)) {
-        uint8_t *header = (uint8_t *)malloc(len * sizeof(uint8_t));
-        memcpy(header, decoder->packet_buffer, len);
-        ffmpeg_decode_free(decoder);
-        uint8_t *p = ffmpeg_decode_get_buffer(decoder, len);
-        memcpy(decoder->packet_buffer, header, len);
-        free(header);
-    }
-
-    if (!ffmpeg_decode_valid(decoder)) {
-        if (ffmpeg_decode_init_audio(decoder, decoder->packet_buffer, AV_CODEC_ID_AAC) < 0) {
-            elog("could not initialize audio decoder");
-            return false;
+    if (has_config) {
+        if (decoder->ready) {
+            ilog("unexpected audio config change while decoder is init'd");
+            decoder->failed = true;
+            goto FAILED;
         }
 
-        // early out, dont pass config packet to decode
+        if (decoder->init(data_packet->data, AV_CODEC_ID_AAC, false) < 0) {
+            elog("could not initialize AAC decoder");
+            decoder->failed = true;
+            goto FAILED;
+        }
+
         plugin->obs_audio_frame.format = AUDIO_FORMAT_UNKNOWN;
+        decoder->push_empty_packet(data_packet);
         return true;
     }
 
-    bool got_output;
-    if (!ffmpeg_decode_audio(decoder, &plugin->obs_audio_frame, &got_output, len)) {
+    if (decoder->failed) {
+    FAILED:
+        dlog("discarding audio frame.. decoder failed");
+        decoder->push_empty_packet(data_packet);
+        return true;
+    }
+
+    // decoder->push_ready_packet(data_packet);
+    if (!decoder->decode_audio(&plugin->obs_audio_frame, data_packet, &got_output)) {
         elog("error decoding audio");
-        return false;
+        decoder->failed = true;
+        goto FAILED;
     }
 
     if (got_output) {
-        plugin->obs_audio_frame.timestamp = pts * 100;
+        plugin->obs_audio_frame.timestamp = data_packet->pts * 100;
 #if 0
         dlog("output audio: %d frames: %d HZ, Fmt %d, Chan %d,  pts %lu",
             plugin->obs_audio_frame.frames,
@@ -479,9 +484,9 @@ do_audio_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
             plugin->obs_audio_frame.timestamp);
 #endif
         obs_source_output_audio(plugin->source, &plugin->obs_audio_frame);
-        // return ((uint64_t)plugin->obs_audio_frame.frames * MILLI_SEC / (uint64_t)plugin->obs_audio_frame.samples_per_sec);
     }
-#endif
+
+    decoder->push_empty_packet(data_packet);
     return true;
 }
 
@@ -490,6 +495,7 @@ static void *audio_thread(void *data) {
     socket_t sock = INVALID_SOCKET;
     const char *audio_req = AUDIO_REQ;
 
+    ilog("audio_thread start");
     while (PLUGIN_RUNNING()) {
         if (plugin->activated && plugin->is_showing && plugin->enable_audio) {
             if (plugin->audio_running) {
@@ -507,6 +513,9 @@ static void *audio_thread(void *data) {
             // connect audio only after video works
             if (!plugin->video_running)
                 goto LOOP;
+
+            // no rush..
+            os_sleep_ms(MILLI_SEC);
 
             if ((sock = connect(plugin)) == INVALID_SOCKET)
                 goto SLOW_LOOP;
@@ -531,21 +540,24 @@ SLOW_LOOP:
             plugin->audio_running = false;
         }
 
+LOOP:
         if (sock != INVALID_SOCKET) {
             ilog("closing active audio socket %d", sock);
             net_close(sock);
             sock = INVALID_SOCKET;
         }
-/* FIXME
-        if (ffmpeg_decode_valid(&plugin->audio_decoder)) {
-            ffmpeg_decode_free(&plugin->audio_decoder);
+
+        if (plugin->audio_decoder) {
+            ilog("release audio_decoder");
+            delete plugin->audio_decoder;
+            plugin->audio_decoder = NULL;
         }
-*/
-LOOP:
-        os_sleep_ms(MILLI_SEC / FPS);
+
         if (plugin->enable_audio) obs_source_output_audio(plugin->source, NULL);
+        os_sleep_ms(MILLI_SEC / FPS);
     }
 
+    ilog("audio_thread end");
     plugin->audio_running = false;
     if (sock != INVALID_SOCKET) net_close(sock);
     return NULL;
@@ -556,7 +568,7 @@ static void plugin_destroy(void *data) {
 
     if (plugin) {
         if (plugin->time_start != 0) {
-            dlog("stopping");
+            ilog("stopping");
             os_event_signal(plugin->stop_signal);
             pthread_join(plugin->video_thread, NULL);
             pthread_join(plugin->audio_thread, NULL);
@@ -564,7 +576,7 @@ static void plugin_destroy(void *data) {
             pthread_join(plugin->video_decode_thread, NULL);
         }
 
-        dlog("cleanup");
+        ilog("cleanup");
         os_event_destroy(plugin->stop_signal);
 
         if (plugin->video_decoder) delete plugin->video_decoder;
@@ -585,10 +597,12 @@ static void *plugin_create(obs_data_t *settings, obs_source_t *source) {
     plugin->video_running = false;
     plugin->adbMgr = new AdbMgr();
     plugin->iosMgr = new USBMux();
+    plugin->use_hw = obs_data_get_bool(settings, OPT_USE_HW_ACCEL);
+    plugin->enable_audio  = obs_data_get_bool(settings, OPT_ENABLE_AUDIO);
     plugin->deactivateWNS = obs_data_get_bool(settings, OPT_DEACTIVATE_WNS);
     plugin->activated = obs_data_get_bool(settings, OPT_IS_ACTIVATED);
-    ilog("activated=%d, deactivateWNS=%d, is_showing=%d",
-        plugin->activated, plugin->deactivateWNS, plugin->is_showing);
+    ilog("activated=%d, deactivateWNS=%d, is_showing=%d, enable_audio=%d",
+        plugin->activated, plugin->deactivateWNS, plugin->is_showing, plugin->enable_audio);
 
     if (plugin->activated) {
         plugin->device_info.id = obs_data_get_string(settings, OPT_ACTIVE_DEV_ID);
@@ -650,6 +664,7 @@ static inline void toggle_ppts(obs_properties_t *ppts, bool enable) {
     obs_property_set_enabled(obs_properties_get(ppts, OPT_CONNECT_IP)  , enable);
     obs_property_set_enabled(obs_properties_get(ppts, OPT_CONNECT_PORT), enable);
     obs_property_set_enabled(obs_properties_get(ppts, OPT_ENABLE_AUDIO), enable);
+    obs_property_set_enabled(obs_properties_get(ppts, OPT_USE_HW_ACCEL), enable);
 }
 
 static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *data) {
@@ -785,10 +800,15 @@ static void plugin_update(void *data, obs_data_t *settings) {
     droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
     plugin->deactivateWNS = obs_data_get_bool(settings, OPT_DEACTIVATE_WNS);
     plugin->enable_audio  = obs_data_get_bool(settings, OPT_ENABLE_AUDIO);
+    plugin->use_hw = obs_data_get_bool(settings, OPT_USE_HW_ACCEL);
     bool sync_av = obs_data_get_bool(settings, OPT_SYNC_AV);
     bool activated = obs_data_get_bool(settings, OPT_IS_ACTIVATED);
 
-    ilog("plugin_udpate: activated=%d (actual=%d) sync_av=%d", plugin->activated, activated, sync_av);
+    ilog("plugin_udpate: activated=%d (actual=%d) audio=%d sync_av=%d",
+        plugin->activated,
+        activated,
+        plugin->enable_audio,
+        sync_av);
     obs_source_set_async_decoupled(plugin->source, !sync_av);
 
     // handle [Cancel] case
@@ -828,24 +848,31 @@ static obs_properties_t *plugin_properties(void *data) {
 
     obs_properties_add_text(ppts, OPT_CONNECT_IP, "WiFi IP", OBS_TEXT_DEFAULT);
     obs_properties_add_int(ppts, OPT_CONNECT_PORT, "DroidCam Port", 1, 65535, 1);
+
+    cp = obs_properties_add_button(ppts, OPT_CONNECT, TEXT_CONNECT, connect_clicked);
+    obs_properties_add_bool(ppts, OPT_USE_HW_ACCEL, TEXT_USE_HW_ACCEL);
     obs_properties_add_bool(ppts, OPT_ENABLE_AUDIO, TEXT_ENABLE_AUDIO);
     obs_properties_add_bool(ppts, OPT_SYNC_AV, TEXT_SYNC_AV);
     obs_properties_add_bool(ppts, OPT_DEACTIVATE_WNS, TEXT_DWNS);
-
-    cp = obs_properties_add_button(ppts, OPT_CONNECT, TEXT_CONNECT, connect_clicked);
     if (activated) {
         toggle_ppts(ppts, false);
         obs_property_set_description(cp, TEXT_DEACTIVATE);
     }
-
     return ppts;
 }
 
 static void plugin_defaults(obs_data_t *settings) {
     dlog("plugin_defaults");
     obs_data_set_default_bool(settings, OPT_IS_ACTIVATED, false);
-    obs_data_set_default_bool(settings, OPT_SYNC_AV, true);
-    obs_data_set_default_bool(settings, OPT_ENABLE_AUDIO, true);
+    obs_data_set_default_bool(settings, OPT_SYNC_AV, false);
+    obs_data_set_default_bool(settings, OPT_USE_HW_ACCEL,
+#ifdef __linux__
+    false
+#else
+    true
+#endif
+    );
+    obs_data_set_default_bool(settings, OPT_ENABLE_AUDIO, false);
     obs_data_set_default_bool(settings, OPT_DEACTIVATE_WNS, false);
     obs_data_set_default_int(settings, OPT_CONNECT_PORT, 1212);
 }

@@ -76,19 +76,4 @@ struct FFMpegDecoder : Decoder {
 	DataPacket* pull_empty_packet(size_t size);
 	void push_ready_packet(DataPacket*);
 };
-/*
-bool ffmpeg_decode_audio(struct ffmpeg_decode *decode, struct obs_source_audio *audio,
-	bool *got_output, int size);
-
-struct packet_buffer* ffmpeg_decode_get_buffer(struct ffmpeg_decode *decode, int size);
-
-static inline int ffmpeg_decode_init_video(struct ffmpeg_decode *decode, enum AVCodecID id) {
-	bool use_hw = true;
-	return ffmpeg_decode_init(decode, NULL, id, use_hw);
-}
-
-static inline int ffmpeg_decode_init_audio(struct ffmpeg_decode *decode, uint8_t* header, enum AVCodecID id) {
-	return ffmpeg_decode_init(decode, header, id, false);
-}
-*/
 #endif

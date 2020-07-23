@@ -8,6 +8,7 @@
 #define OPT_REFRESH           "refresh"
 #define OPT_DEACTIVATE_WNS    "deactivate_wns"
 #define OPT_SYNC_AV           "sync_av"
+#define OPT_USE_HW_ACCEL      "use_hw_accel"
 #define OPT_IS_ACTIVATED      "activated"
 #define OPT_ENABLE_AUDIO      "enable_aduio"
 #define OPT_DEVICE_LIST       "device_list"
@@ -24,6 +25,7 @@
 #define TEXT_USE_WIFI       obs_module_text("UseWiFi")
 #define TEXT_ENABLE_AUDIO   obs_module_text("EnableAudio")
 #define TEXT_SYNC_AV        obs_module_text("SyncAV")
+#define TEXT_USE_HW_ACCEL   obs_module_text("AllowHWAccel")
 
 #define PING_REQ "GET /ping"
 #define AUDIO_REQ "GET /v1/audio"

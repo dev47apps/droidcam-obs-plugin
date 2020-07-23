@@ -245,7 +245,7 @@ AdbDevice* AdbMgr::NextDevice(int *is_offline) {
     if (iter >= DEVICES_LIMIT) iter = 0;
 
     if (deviceList[iter]) {
-        dlog("device %s is %s", deviceList[iter]->serial, deviceList[iter]->state);
+        ilog("device %s is %s", deviceList[iter]->serial, deviceList[iter]->state);
         if (memcmp(device, deviceList[iter]->state, sizeof(STATE_DEVICE)-1) == 0) {
             *is_offline = 0;
         } else {
@@ -336,7 +336,7 @@ int USBMux::Reload(void) {
 
     usbmuxd_device_list_free(&deviceList);
     deviceCount = usbmuxd_get_device_list(&deviceList);
-    dlog("USBMux: Reload: %d devices", deviceCount);
+    ilog("USBMux: Reload: %d devices", deviceCount);
     if (deviceCount < 0) {
         elog("Could not get iOS device list, usbmuxd not running?");
         deviceCount = 0;

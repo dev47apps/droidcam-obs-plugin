@@ -50,6 +50,7 @@ static void init_hw_decoder(FFMpegDecoder *d)
 	enum AVHWDeviceType *priority = hw_priority;
 	AVBufferRef *hw_ctx = NULL;
 
+	ilog("init hw decoder");
 	while (*priority != AV_HWDEVICE_TYPE_NONE) {
 		if (has_hw_type(d->codec, *priority)) {
 			int ret = av_hwdevice_ctx_create(&hw_ctx, *priority, NULL, NULL, 0);
@@ -136,8 +137,6 @@ FFMpegDecoder::~FFMpegDecoder(void)
 		avcodec_close(decoder);
 		av_free(decoder);
 	}
-
-	Decoder::~Decoder();
 }
 
 static inline enum video_format convert_pixel_format(int f)
@@ -190,7 +189,7 @@ static inline enum audio_format convert_sample_format(int f)
 
 	return AUDIO_FORMAT_UNKNOWN;
 }
-
+/*
 static inline enum speaker_layout convert_speaker_layout(uint8_t channels)
 {
 	switch (channels) {
@@ -214,7 +213,7 @@ static inline enum speaker_layout convert_speaker_layout(uint8_t channels)
 		return SPEAKERS_UNKNOWN;
 	}
 }
-
+*/
 DataPacket* FFMpegDecoder::pull_empty_packet(size_t size)
 {
 	size_t new_size = size + INPUT_BUFFER_PADDING_SIZE;
@@ -230,7 +229,7 @@ void FFMpegDecoder::push_ready_packet(DataPacket* packet)
 			recieveQueue.add_item(packet);
 			return;
 		}
-		if (codec->id == AV_CODEC_ID_H264 
+		if (codec->id == AV_CODEC_ID_H264
 			&& !obs_avc_keyframe(packet->data, packet->used))
 		{
 			dlog("discard non key-frame");
@@ -243,9 +242,14 @@ void FFMpegDecoder::push_ready_packet(DataPacket* packet)
 	}
 
 	decodeQueue.add_item(packet);
-	if (decodeQueue.items.size() > 24) {
+	if (codec->id == AV_CODEC_ID_H264 && decodeQueue.items.size() > 24) {
 		catchup = true;
 	}
+	// ((uint64_t)plugin->obs_audio_frame.frames * MILLI_SEC / (uint64_t)plugin->obs_audio_frame.samples_per_sec)
+	/*
+	else if (codec->id == AV_CODEC_ID_AAC && decodeQueue.items.size() > 32) {
+		catchup = true;
+	}*/
 }
 
 bool FFMpegDecoder::decode_video(struct obs_source_frame2* obs_frame, DataPacket* data_packet,
