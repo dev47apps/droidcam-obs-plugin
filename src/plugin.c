@@ -21,6 +21,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "plugin.h"
 #include "plugin_properties.h"
 #include "ffmpeg_decode.h"
+#include "mjpeg_decode.h"
 #include "net.h"
 #include "buffer_util.h"
 #include "usb_util.h"
@@ -41,6 +42,23 @@ enum class DeviceType {
     WIFI,
     ADB,
     IOS,
+};
+
+enum VideoFormat {
+    FORMAT_AVC,
+    FORMAT_MJPG,
+};
+
+const char* VideoFormatNames[][2] = {
+    {"AVC/H.264", "avc"},
+    {"MJPEG", "mjpg"},
+};
+
+const char* Resolutions[] = {
+    "640x480",
+    "960x720",
+    "1280x720",
+    "1920x1080",
 };
 
 struct active_device_info {
@@ -68,6 +86,8 @@ struct droidcam_obs_plugin {
     bool use_hw;
     bool audio_running;
     bool video_running;
+    int video_resolution;
+    enum VideoFormat video_format;
     struct active_device_info device_info;
     struct obs_source_audio obs_audio_frame;
     struct obs_source_frame2 obs_video_frame;
@@ -312,9 +332,31 @@ recv_video_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
     Decoder *decoder = plugin->video_decoder;
 
     if (!decoder) {
+        bool init = false;
+        bool use_hw = plugin->use_hw;
         ilog("create video decoder");
-        decoder = new FFMpegDecoder();
+
+        if (plugin->video_format == FORMAT_AVC) {
+            decoder = new FFMpegDecoder();
+            init = (((FFMpegDecoder*)decoder)->init(NULL, AV_CODEC_ID_H264, use_hw) >= 0);
+        }
+        else if (plugin->video_format == FORMAT_MJPG) {
+            decoder = new MJpegDecoder();
+            init = ((MJpegDecoder*)decoder)->init();
+        }
+        else {
+            elog("unexpected video format %d", plugin->video_format);
+            decoder = new MJpegDecoder();
+            init = false;
+        }
+
         plugin->video_decoder = decoder;
+        plugin->obs_video_frame.format = VIDEO_FORMAT_NONE;
+        if (!init) {
+            elog("could not initialize decoder");
+            decoder->failed = true;
+            goto FAIL_OUT;
+        }
     }
 
     int has_config = 0;
@@ -322,29 +364,11 @@ recv_video_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
     if (!data_packet)
         return false;
 
-    // All paths must do something with data_packet
-    if (has_config) {
-        if (decoder->ready) {
-            ilog("unexpected video config change while decoder is init'd");
-            decoder->failed = true;
-            goto FAILED;
-        }
-
-        bool use_hw = plugin->use_hw;
-        if (((FFMpegDecoder*)decoder)->init(NULL, AV_CODEC_ID_H264, use_hw) < 0) {
-            elog("could not initialize AVC decoder");
-            decoder->failed = true;
-            goto FAILED;
-        }
-
-        plugin->obs_video_frame.format = VIDEO_FORMAT_NONE;
-    }
-
     // This should not happen, rather than causing a connection reset... idle
     if (decoder->failed) {
-    FAILED:
         dlog("discarding frame.. decoder failed");
         decoder->push_empty_packet(data_packet);
+FAIL_OUT:
         return true;
     }
 
@@ -355,7 +379,8 @@ recv_video_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
 static void *video_thread(void *data) {
     droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
     socket_t sock = INVALID_SOCKET;
-    const char *video_req = VIDEO_REQ;
+    char video_req[32];
+    int video_req_len = 0;
 
     ilog("video_thread start");
     while (PLUGIN_RUNNING()) {
@@ -375,7 +400,14 @@ static void *video_thread(void *data) {
             if ((sock = connect(plugin)) == INVALID_SOCKET)
                 goto SLOW_LOOP;
 
-            if (net_send_all(sock, video_req, sizeof(VIDEO_REQ)-1) <= 0) {
+            if (video_req_len == 0) {
+                video_req_len = snprintf(video_req, sizeof(video_req), VIDEO_REQ,
+                    VideoFormatNames[plugin->video_format][1],
+                    Resolutions[plugin->video_resolution]);
+                dlog("%s", video_req);
+            }
+
+            if (net_send_all(sock, video_req, video_req_len) <= 0) {
                 elog("send(/video) failed");
                 net_close(sock);
                 sock = INVALID_SOCKET;
@@ -391,6 +423,7 @@ SLOW_LOOP:
         }
 
         // else: not activated
+        video_req_len = 0;
         if (plugin->video_running) {
             plugin->video_running = false;
         }
@@ -440,6 +473,8 @@ do_audio_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
     DataPacket* data_packet = read_frame(decoder, sock, &has_config);
     if (!data_packet)
         return false;
+
+    // NOTE: All paths must do something with data_packet from here
 
     if (has_config) {
         if (decoder->ready) {
@@ -611,6 +646,13 @@ static void *plugin_create(obs_data_t *settings, obs_source_t *source) {
         plugin->device_info.type = (DeviceType) obs_data_get_int(settings, OPT_ACTIVE_DEV_TYPE);
         ilog("device_info.id=%s device_info.ip=%s device_info.port=%d device_info.type=%d",
             plugin->device_info.id, plugin->device_info.ip, plugin->device_info.port, plugin->device_info.type);
+
+        plugin->video_format = (VideoFormat) obs_data_get_int(settings, OPT_VIDEO_FORMAT);
+        plugin->video_resolution = obs_data_get_int(settings, OPT_RESOLUTION);
+        ilog("video_format=%s video_resolution=%s",
+            VideoFormatNames[plugin->video_format][1],
+            Resolutions[plugin->video_resolution]);
+
         if (plugin->device_info.type == DeviceType::NONE
             || plugin->device_info.port <= 0 || plugin->device_info.port > 65535
             || !plugin->device_info.id || plugin->device_info.id[0] == 0)
@@ -659,6 +701,8 @@ static void plugin_hide(void *data) {
 }
 
 static inline void toggle_ppts(obs_properties_t *ppts, bool enable) {
+    obs_property_set_enabled(obs_properties_get(ppts, OPT_RESOLUTION)  , enable);
+    obs_property_set_enabled(obs_properties_get(ppts, OPT_VIDEO_FORMAT), enable);
     obs_property_set_enabled(obs_properties_get(ppts, OPT_REFRESH)     , enable);
     obs_property_set_enabled(obs_properties_get(ppts, OPT_DEVICE_LIST) , enable);
     obs_property_set_enabled(obs_properties_get(ppts, OPT_CONNECT_IP)  , enable);
@@ -745,12 +789,19 @@ static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
 
 skip_usb_check:
     obs_property_set_description(cp, TEXT_DEACTIVATE);
+    plugin->video_format = (VideoFormat) obs_data_get_int(settings, OPT_VIDEO_FORMAT);
+    plugin->video_resolution = obs_data_get_int(settings, OPT_RESOLUTION);
+
     toggle_ppts(ppts, false);
     obs_data_set_string(settings, OPT_ACTIVE_DEV_ID, device_info->id);
     obs_data_set_int(settings, OPT_ACTIVE_DEV_TYPE, (long long) device_info->type);
     obs_data_set_bool(settings, OPT_IS_ACTIVATED, true);
     plugin->activated = true;
     ilog("activated: id=%s type=%d ip=%s port=%d", device_info->id, device_info->type, device_info->ip, device_info->port);
+    ilog("video_format=%d/%s video_resolution=%d/%s",
+        plugin->video_format, VideoFormatNames[plugin->video_format][1],
+        plugin->video_resolution, Resolutions[plugin->video_resolution]);
+
 
 out:
     obs_property_set_enabled(cp, true);
@@ -830,6 +881,14 @@ static obs_properties_t *plugin_properties(void *data) {
     int is_offline;
     bool activated = obs_data_get_bool(settings, OPT_IS_ACTIVATED);
     ilog("plugin_properties: activated=%d (actual=%d)", plugin->activated, activated);
+
+    cp = obs_properties_add_list(ppts, OPT_RESOLUTION, TEXT_RESOLUTION, OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
+    for (int i = 0; i < ARRAY_LEN(Resolutions); i++)
+        obs_property_list_add_int(cp, Resolutions[i], i);
+
+    cp = obs_properties_add_list(ppts, OPT_VIDEO_FORMAT, TEXT_VIDEO_FORMAT, OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
+    for (int i = 0; i < ARRAY_LEN(VideoFormatNames); i++)
+        obs_property_list_add_int(cp, VideoFormatNames[i][0], i);
 
     obs_properties_add_list(ppts, OPT_DEVICE_LIST, TEXT_DEVICE, OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
     cp = obs_properties_get(ppts, OPT_DEVICE_LIST);

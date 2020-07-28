@@ -4,6 +4,7 @@
 #define OPT_CONNECT_IP        "wifi_ip"
 #define OPT_CONNECT_PORT      "app_port"
 #define OPT_RESOLUTION        "resolution"
+#define OPT_VIDEO_FORMAT      "video_format"
 #define OPT_CONNECT           "connect"
 #define OPT_REFRESH           "refresh"
 #define OPT_DEACTIVATE_WNS    "deactivate_wns"
@@ -19,6 +20,7 @@
 #define TEXT_DEVICE         obs_module_text("Device")
 #define TEXT_REFRESH        obs_module_text("Refresh")
 #define TEXT_RESOLUTION     obs_module_text("Resolution")
+#define TEXT_VIDEO_FORMAT   obs_module_text("VideoFormat")
 #define TEXT_CONNECT        obs_module_text("Activate")
 #define TEXT_DEACTIVATE     obs_module_text("Deactivate")
 #define TEXT_DWNS           obs_module_text("DeactivateWhenNotShowing")
@@ -29,7 +31,7 @@
 
 #define PING_REQ "GET /ping"
 #define AUDIO_REQ "GET /v1/audio"
-#define VIDEO_REQ "GET /v1/video"
+#define VIDEO_REQ "GET /v3/video/%s/%s"
 
 #define ADB_LOCALHOST_IP "127.0.0.1"
 #endif
