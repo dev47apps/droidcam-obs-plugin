@@ -247,7 +247,7 @@ void FFMpegDecoder::push_ready_packet(DataPacket* packet)
 	}
 	// ((uint64_t)plugin->obs_audio_frame.frames * MILLI_SEC / (uint64_t)plugin->obs_audio_frame.samples_per_sec)
 	// At 44100HZ, 1 AAC Frame = 23ms
-	else if (codec->id == AV_CODEC_ID_AAC && decodeQueue.items.size() > 16) {
+	else if (codec->id == AV_CODEC_ID_AAC && decodeQueue.items.size() > (1000/23)) {
 		catchup = true;
 	}
 }
@@ -338,7 +338,6 @@ bool FFMpegDecoder::decode_video(struct obs_source_frame2* obs_frame, DataPacket
 		obs_frame->range = range;
 	}
 
-	data_packet->pts = frame->pts;
 	obs_frame->width = frame->width;
 	obs_frame->height = frame->height;
 	obs_frame->flip = false;
