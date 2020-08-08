@@ -25,7 +25,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "buffer_util.h"
 #include "usb_util.h"
 
-#define VERSION_TEXT "v0.2"
+#define VERSION_TEXT "v0.3"
 #define FPS 25
 #define MILLI_SEC 1000
 #define NANO_SEC  1000000000
@@ -851,9 +851,10 @@ static obs_properties_t *plugin_properties(void *data) {
 
     cp = obs_properties_add_button(ppts, OPT_CONNECT, TEXT_CONNECT, connect_clicked);
     obs_properties_add_bool(ppts, OPT_USE_HW_ACCEL, TEXT_USE_HW_ACCEL);
+    obs_properties_add_bool(ppts, OPT_DEACTIVATE_WNS, TEXT_DWNS);
     obs_properties_add_bool(ppts, OPT_ENABLE_AUDIO, TEXT_ENABLE_AUDIO);
     obs_properties_add_bool(ppts, OPT_SYNC_AV, TEXT_SYNC_AV);
-    obs_properties_add_bool(ppts, OPT_DEACTIVATE_WNS, TEXT_DWNS);
+
     if (activated) {
         toggle_ppts(ppts, false);
         obs_property_set_description(cp, TEXT_DEACTIVATE);

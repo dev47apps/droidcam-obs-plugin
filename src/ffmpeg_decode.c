@@ -81,7 +81,6 @@ int FFMpegDecoder::init(uint8_t* header, enum AVCodecID id, bool use_hw)
 
 	decoder = avcodec_alloc_context3(codec);
 
-	decoder->thread_count = 0;
 	if (id == AV_CODEC_ID_AAC) {
 		// https://wiki.multimedia.cx/index.php/MPEG-4_Audio
 		static int aac_frequencies[] = {96000,88200,64000,48000,44100,32000,24000,22050,16000,12000,11025,8000};
@@ -121,6 +120,7 @@ int FFMpegDecoder::init(uint8_t* header, enum AVCodecID id, bool use_hw)
 	decoder->flags |= AV_CODEC_FLAG_LOW_DELAY;
 	decoder->flags2 |= AV_CODEC_FLAG2_FAST;
 	// decoder->flags2 |= AV_CODEC_FLAG2_CHUNKS;
+	decoder->thread_type = FF_THREAD_SLICE;
 	ready = true;
 	return 0;
 }
@@ -246,10 +246,10 @@ void FFMpegDecoder::push_ready_packet(DataPacket* packet)
 		catchup = true;
 	}
 	// ((uint64_t)plugin->obs_audio_frame.frames * MILLI_SEC / (uint64_t)plugin->obs_audio_frame.samples_per_sec)
-	/*
-	else if (codec->id == AV_CODEC_ID_AAC && decodeQueue.items.size() > 32) {
+	// At 44100HZ, 1 AAC Frame = 23ms
+	else if (codec->id == AV_CODEC_ID_AAC && decodeQueue.items.size() > 16) {
 		catchup = true;
-	}*/
+	}
 }
 
 bool FFMpegDecoder::decode_video(struct obs_source_frame2* obs_frame, DataPacket* data_packet,
@@ -269,6 +269,11 @@ bool FFMpegDecoder::decode_video(struct obs_source_frame2* obs_frame, DataPacket
 	if (// codec->id == AV_CODEC_ID_H264 &&
 		obs_avc_keyframe(data_packet->data, data_packet->used))	{
 		packet.flags |= AV_PKT_FLAG_KEY;
+	}
+
+	if (decoder->has_b_frames && !b_frame_check) {
+	    elog("WARNING Stream has b-frames!");
+	    b_frame_check = true;
 	}
 
 	if (!frame) {

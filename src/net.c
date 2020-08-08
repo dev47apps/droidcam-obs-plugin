@@ -92,7 +92,7 @@ socket_t
 net_connect(const char* ip, uint16_t port) {
     dlog("connect %s:%d", ip, port);
 
-    int len = 65536;
+    int len;
     socket_t sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock == INVALID_SOCKET) {
         elog("socket(): %s", strerror(errno));
@@ -137,6 +137,7 @@ ERROR_OUT:
     if (!set_nonblock(sock, 0))
         goto ERROR_OUT;
 
+    len = 65536 * 4;
     setsockopt(sock, SOL_SOCKET, SO_RCVBUF, (char *) &len, sizeof(int));
     return sock;
 }
@@ -178,19 +179,16 @@ net_send(socket_t sock, const void *buf, size_t len) {
 ssize_t
 net_send_all(socket_t sock, const void *buf, size_t len) {
     ssize_t w = 0;
+    char *ptr = (char*) buf;
     while (len > 0) {
-        #if _WIN32
-        w = send(sock, (const char*)buf, len, 0);
-        #else
-        w = send(sock, buf, len, 0);
-        #endif
-        if (w == -1) {
+        w = send(sock, ptr, len, 0);
+        if (w <= 0) {
             return -1;
         }
         len -= w;
-        buf = (char *) buf + w;
+        ptr += w;
     }
-    return w;
+    return 1;
 }
 
 bool

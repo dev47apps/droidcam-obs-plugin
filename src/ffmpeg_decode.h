@@ -52,6 +52,7 @@ struct FFMpegDecoder : Decoder {
 	AVFrame *frame;
 	bool hw;
 	bool catchup;
+	bool b_frame_check;
 
 	FFMpegDecoder(void) {
 		ready = false;
@@ -64,6 +65,7 @@ struct FFMpegDecoder : Decoder {
 		frame = NULL;
 		hw = false;
 		catchup = false;
+		b_frame_check = false;
 	}
 
 	~FFMpegDecoder(void);
