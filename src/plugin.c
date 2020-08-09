@@ -51,7 +51,7 @@ enum VideoFormat {
 
 const char* VideoFormatNames[][2] = {
     {"AVC/H.264", "avc"},
-    {"MJPEG", "mjpg"},
+    {"MJPEG", "jpg"},
 };
 
 const char* Resolutions[] = {
@@ -150,7 +150,7 @@ static socket_t connect(struct droidcam_obs_plugin *plugin) {
     AdbMgr* adbMgr = plugin->adbMgr;
     USBMux* iosMgr = plugin->iosMgr;
     struct active_device_info *device_info = &plugin->device_info;
-    dlog("connect device: id=%s type=%d", device_info->id, device_info->type);
+    dlog("connect device: id=%s type=%d", device_info->id, (int) device_info->type);
 
     if (device_info->type == DeviceType::WIFI) {
         return net_connect(device_info->ip, device_info->port);
@@ -308,7 +308,7 @@ static void *video_decode_thread(void *data) {
         }
 
         if (got_output) {
-            plugin->obs_video_frame.timestamp = data_packet->pts * 100;
+            plugin->obs_video_frame.timestamp = data_packet->pts;
             //if (flip) plugin->obs_video_frame.flip = !plugin->obs_video_frame.flip;
     #if 0
             dlog("output video: %dx%d %lu",
@@ -329,6 +329,8 @@ LOOP:
 
 static bool
 recv_video_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
+    int has_config = 0;
+    DataPacket* data_packet;
     Decoder *decoder = plugin->video_decoder;
 
     if (!decoder) {
@@ -359,8 +361,7 @@ recv_video_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
         }
     }
 
-    int has_config = 0;
-    DataPacket* data_packet = read_frame(decoder, sock, &has_config);
+    data_packet = read_frame(decoder, sock, &has_config);
     if (!data_packet)
         return false;
 
@@ -438,7 +439,7 @@ LOOP:
         if (plugin->video_decoder) {
             while (plugin->video_decoder->recieveQueue.items.size() < plugin->video_decoder->alloc_count
             && PLUGIN_RUNNING()){
-                ilog("waiting for decode thread: %ld/%d",
+                ilog("waiting for decode thread: %lu/%lu",
                     plugin->video_decoder->recieveQueue.items.size(),
                     plugin->video_decoder->alloc_count);
                 os_sleep_ms(MILLI_SEC);
@@ -509,7 +510,7 @@ do_audio_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
     }
 
     if (got_output) {
-        plugin->obs_audio_frame.timestamp = data_packet->pts * 100;
+        plugin->obs_audio_frame.timestamp = data_packet->pts;
 #if 0
         dlog("output audio: %d frames: %d HZ, Fmt %d, Chan %d,  pts %lu",
             plugin->obs_audio_frame.frames,
@@ -616,8 +617,8 @@ static void plugin_destroy(void *data) {
 
         if (plugin->video_decoder) delete plugin->video_decoder;
         if (plugin->audio_decoder) delete plugin->audio_decoder;
-        delete plugin->adbMgr;
-        delete plugin->iosMgr;
+        if (plugin->adbMgr) delete plugin->adbMgr;
+        if (plugin->iosMgr) delete plugin->iosMgr;
         delete plugin;
     }
 }
@@ -625,6 +626,7 @@ static void plugin_destroy(void *data) {
 static void *plugin_create(obs_data_t *settings, obs_source_t *source) {
     ilog("create(source=%p) " VERSION_TEXT, source);
     obs_source_set_async_unbuffered(source, true);
+    obs_data_set_string(settings, OPT_VERSION, VERSION_TEXT);
 
     droidcam_obs_plugin *plugin = new droidcam_obs_plugin();
     plugin->source = source;
@@ -633,11 +635,16 @@ static void *plugin_create(obs_data_t *settings, obs_source_t *source) {
     plugin->adbMgr = new AdbMgr();
     plugin->iosMgr = new USBMux();
     plugin->use_hw = obs_data_get_bool(settings, OPT_USE_HW_ACCEL);
+    plugin->video_format = (VideoFormat) obs_data_get_int(settings, OPT_VIDEO_FORMAT);
+    plugin->video_resolution = obs_data_get_int(settings, OPT_RESOLUTION);
     plugin->enable_audio  = obs_data_get_bool(settings, OPT_ENABLE_AUDIO);
     plugin->deactivateWNS = obs_data_get_bool(settings, OPT_DEACTIVATE_WNS);
     plugin->activated = obs_data_get_bool(settings, OPT_IS_ACTIVATED);
     ilog("activated=%d, deactivateWNS=%d, is_showing=%d, enable_audio=%d",
         plugin->activated, plugin->deactivateWNS, plugin->is_showing, plugin->enable_audio);
+    ilog("video_format=%s video_resolution=%s",
+        VideoFormatNames[plugin->video_format][1],
+        Resolutions[plugin->video_resolution]);
 
     if (plugin->activated) {
         plugin->device_info.id = obs_data_get_string(settings, OPT_ACTIVE_DEV_ID);
@@ -645,13 +652,8 @@ static void *plugin_create(obs_data_t *settings, obs_source_t *source) {
         plugin->device_info.port = (int) obs_data_get_int(settings, OPT_CONNECT_PORT);
         plugin->device_info.type = (DeviceType) obs_data_get_int(settings, OPT_ACTIVE_DEV_TYPE);
         ilog("device_info.id=%s device_info.ip=%s device_info.port=%d device_info.type=%d",
-            plugin->device_info.id, plugin->device_info.ip, plugin->device_info.port, plugin->device_info.type);
-
-        plugin->video_format = (VideoFormat) obs_data_get_int(settings, OPT_VIDEO_FORMAT);
-        plugin->video_resolution = obs_data_get_int(settings, OPT_RESOLUTION);
-        ilog("video_format=%s video_resolution=%s",
-            VideoFormatNames[plugin->video_format][1],
-            Resolutions[plugin->video_resolution]);
+            plugin->device_info.id, plugin->device_info.ip,
+            plugin->device_info.port, (int) plugin->device_info.type);
 
         if (plugin->device_info.type == DeviceType::NONE
             || plugin->device_info.port <= 0 || plugin->device_info.port > 65535
@@ -881,13 +883,17 @@ static obs_properties_t *plugin_properties(void *data) {
     int is_offline;
     bool activated = obs_data_get_bool(settings, OPT_IS_ACTIVATED);
     ilog("plugin_properties: activated=%d (actual=%d)", plugin->activated, activated);
+    // this looks terrible. todo: add a file menu 'about' area
+    //cp = obs_properties_add_bool(ppts, OPT_VERSION, VERSION_TEXT);
+    //cp = obs_properties_add_text(ppts, OPT_VERSION, obs_module_text("PluginName"), OBS_TEXT_DEFAULT);
+    //obs_property_set_enabled(cp, false);
 
     cp = obs_properties_add_list(ppts, OPT_RESOLUTION, TEXT_RESOLUTION, OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
-    for (int i = 0; i < ARRAY_LEN(Resolutions); i++)
+    for (size_t i = 0; i < ARRAY_LEN(Resolutions); i++)
         obs_property_list_add_int(cp, Resolutions[i], i);
 
     cp = obs_properties_add_list(ppts, OPT_VIDEO_FORMAT, TEXT_VIDEO_FORMAT, OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
-    for (int i = 0; i < ARRAY_LEN(VideoFormatNames); i++)
+    for (size_t i = 0; i < ARRAY_LEN(VideoFormatNames); i++)
         obs_property_list_add_int(cp, VideoFormatNames[i][0], i);
 
     obs_properties_add_list(ppts, OPT_DEVICE_LIST, TEXT_DEVICE, OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
@@ -925,6 +931,7 @@ static obs_properties_t *plugin_properties(void *data) {
         toggle_ppts(ppts, false);
         obs_property_set_description(cp, TEXT_DEACTIVATE);
     }
+
     return ppts;
 }
 
@@ -935,7 +942,7 @@ static void plugin_defaults(obs_data_t *settings) {
     obs_data_set_default_bool(settings, OPT_USE_HW_ACCEL, true);
     obs_data_set_default_bool(settings, OPT_ENABLE_AUDIO, false);
     obs_data_set_default_bool(settings, OPT_DEACTIVATE_WNS, false);
-    obs_data_set_default_int(settings, OPT_CONNECT_PORT, 1212);
+    obs_data_set_default_int(settings, OPT_CONNECT_PORT, 4747);
 }
 
 static const char *plugin_getname(void *x) {

@@ -11,6 +11,7 @@ LDD_DIRS =
 LDD_LIBS = -lobs-frontend-api
 LDD_FLAG =
 LIB_DLL  = $(BUILD_DIR)/droidcam-obs.so
+STATIC   =
 SRC      = $(shell ls src/*.c src/sys/unix/*.c)
 
 ifeq "$(RELEASE)" "1"
@@ -28,6 +29,11 @@ all: $(LIB_DLL)
 UNAME := $(shell uname -s)
 ifeq ($(UNAME),Linux)
 ## LINUX ##
+	JPEG_DIR ?= /opt/libjpeg-turbo
+	JPEG_LIB  = $(JPEG_DIR)/lib$(shell getconf LONG_BIT)
+
+	STATIC   += $(JPEG_LIB)/libturbojpeg.a
+	INCLUDES += -I$(JPEG_DIR)/include
 	INCLUDES += -I/usr/include/obs
 	LDD_LIBS += -lobs
 	LDD_LIBS += -lusbmuxd
@@ -44,11 +50,14 @@ ifeq ($(UNAME),Darwin)
 	INCLUDES += -I/usr/local/opt/qt5/include
 	INCLUDES += -I/usr/local/opt/qt5/include/QtCore
 	INCLUDES += -I/usr/local/opt/qt5/include/QtWidgets
+	INCLUDES += -I/usr/local/opt/libjpeg-turbo/include
 	INCLUDES += -I../ffmpeg
 	INCLUDES += -I../obs-studio-24.0.2/UI
 	INCLUDES += -I../obs-studio-24.0.2/libobs
 	LDD_DIRS += -L/Applications/OBS.app/Contents/Resources/bin
+	LDD_DIRS += -L/usr/local/opt/libjpeg-turbo/lib
 	LDD_LIBS += -lobs.0 -lavcodec.58 -lavformat.58 -lavutil.56
+	LDD_LIBS += -lturbojpeg
 	LDD_FLAG += -bundle
 
 run:
@@ -57,7 +66,7 @@ run:
 endif
 
 $(LIB_DLL): $(SRC)
-	$(CXX) $(CXXFLAGS) $(INCLUDES) $(LDD_DIRS) $(LDD_LIBS) $(LDD_FLAG) $^ -o $@
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $(LDD_DIRS) $(LDD_LIBS) $(LDD_FLAG) $^ $(STATIC) -o $@
 
 clean:
 	$(RM) $(BUILD_DIR)/*.o $(BUILD_DIR)/*.so

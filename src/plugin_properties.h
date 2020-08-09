@@ -1,6 +1,7 @@
 #ifndef __PLUGIN_PROPS_H__
 #define __PLUGIN_PROPS_H__
 
+#define OPT_VERSION           "version"
 #define OPT_CONNECT_IP        "wifi_ip"
 #define OPT_CONNECT_PORT      "app_port"
 #define OPT_RESOLUTION        "resolution"

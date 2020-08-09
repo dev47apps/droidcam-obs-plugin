@@ -338,6 +338,11 @@ USBMux::USBMux() {
 }
 
 USBMux::~USBMux() {
+#ifdef __APPLE__
+    return;
+
+#else // Not __APPLE__
+
     if (deviceList) usbmuxd_device_list_free(&deviceList);
 
 #ifdef _WIN32
@@ -347,6 +352,8 @@ USBMux::~USBMux() {
 #ifdef __linux__
     if (hModule) dlclose(hModule);
 #endif
+
+#endif // __APPLE__
 }
 
 int USBMux::Reload(void)

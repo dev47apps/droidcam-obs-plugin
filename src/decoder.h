@@ -55,7 +55,7 @@ struct DataPacket {
 struct Decoder {
     Queue<DataPacket*> recieveQueue;
     Queue<DataPacket*> decodeQueue;
-    int alloc_count;
+    size_t alloc_count;
     bool ready;
     bool failed;
 
@@ -69,7 +69,7 @@ struct Decoder {
             delete packet;
             alloc_count --;
         }
-        ilog("~decoder alloc_count=%d", alloc_count);
+        ilog("~decoder alloc_count=%lu", alloc_count);
     }
 
     inline DataPacket* pull_ready_packet(void) {
