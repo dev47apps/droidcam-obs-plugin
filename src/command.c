@@ -18,6 +18,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef __linux__
+#include <dlfcn.h>
+#endif
 
 #include "net.h"
 #include "command.h"
@@ -84,17 +87,13 @@ process_print_error(enum process_result err, const char *const argv[]) {
 // adb commands
 static const char *adb_exe =
 #ifdef _WIN32
-#ifdef TEST
-    ".\\build\\adbz.exe";
-#else
     PLUGIN_DATA_DIR "\\adb\\adb.exe";
-#endif /* TEST */
 #else
-#ifdef TEST
-    "/tmp/adbz";
-#else
+    #ifdef __APPLE__
+    "/usr/local/bin/adb";
+    #else
     "adb";
-#endif /* TEST */
+    #endif
 #endif
 
 process_t
@@ -130,13 +129,15 @@ AdbMgr::AdbMgr() {
     int i = 0;
     for (; i < DEVICES_LIMIT; i++) deviceList[i] = NULL;
 
-#ifdef _WIN32
+#if defined(_WIN32) || defined(__APPLE__)
    if (!FileExists(adb_exe)) {
+
 #else
     if (system("adb version > /dev/null 2>&1")) {
-#endif
+        ilog("PATH=%s", getenv("PATH"));
 
-        elog("adb.exe not available");
+#endif
+        elog("%s not found", adb_exe);
         disabled = 1;
         return;
     }
@@ -290,51 +291,78 @@ void AdbMgr::ClearForwards(const char *serial) {
 // MARK: USBMUX
 
 USBMux::USBMux() {
-#ifndef __APPLE__
+    const char *errmsg = "Error loading usbmuxd dll, iOS USB support n/a";
+    deviceList = NULL;
+
+#ifdef _WIN32
     const char *usbmuxd_dll = PLUGIN_DATA_DIR PATH_SEPARATOR "usbmuxd.dll";
     if (!FileExists(usbmuxd_dll)) {
-        elog("iOS support not available");
+        elog("iOS USB support not available");
         hModule = NULL;
         return;
     }
-#endif
 
-#ifdef _WIN32
+    SetDllDirectory(PLUGIN_DATA_DIR);
     hModule = LoadLibrary(usbmuxd_dll);
     if (!hModule) {
-        elog("Error loading usbmuxd.dll");
+        elog("%s", errmsg);
         return;
     }
+
     usbmuxd_set_debug_level  = (libusbmuxd_set_debug_level_t) GetProcAddress(hModule, "libusbmuxd_set_debug_level");
     usbmuxd_get_device_list  = (usbmuxd_get_device_list_t   ) GetProcAddress(hModule, "usbmuxd_get_device_list");
     usbmuxd_device_list_free = (usbmuxd_device_list_free_t  ) GetProcAddress(hModule, "usbmuxd_device_list_free");
     usbmuxd_connect          = (usbmuxd_connect_t           ) GetProcAddress(hModule, "usbmuxd_connect");
     usbmuxd_disconnect       = (usbmuxd_disconnect_t        ) GetProcAddress(hModule, "usbmuxd_disconnect");
+    #ifndef RELEASE
+    usbmuxd_set_debug_level(9);
+    #endif
 #endif
-    // usbmuxd_set_debug_level(9);
+
+#ifdef __linux__
+    hModule = dlopen("libusbmuxd.so", RTLD_LAZY | RTLD_GLOBAL);
+    if (!hModule) {
+        elog("%s", errmsg);
+        return;
+    }
+    #ifndef RELEASE
+    libusbmuxd_set_debug_level(9);
+    #endif
+#endif
+
+#ifdef __APPLE__
+    hModule = this; // noop
+    (void) errmsg;
+    return;
+#endif
 }
 
 USBMux::~USBMux() {
+    if (deviceList) usbmuxd_device_list_free(&deviceList);
+
 #ifdef _WIN32
-    if (hModule) {
-        usbmuxd_device_list_free(&deviceList);
-        FreeLibrary(hModule);
-    }
+    if (hModule) FreeLibrary(hModule);
+#endif
+
+#ifdef __linux__
+    if (hModule) dlclose(hModule);
 #endif
 }
 
-int USBMux::Reload(void) {
+int USBMux::Reload(void)
 #ifdef __APPLE__
+{
     deviceCount = 0;
     return 0;
-#endif
-
+}
+#else // _WIN32 || _Linux
+{
     if (!hModule) {
         deviceCount = 0;
         return 0;
     }
 
-    usbmuxd_device_list_free(&deviceList);
+    if (deviceList) usbmuxd_device_list_free(&deviceList);
     deviceCount = usbmuxd_get_device_list(&deviceList);
     ilog("USBMux: Reload: %d devices", deviceCount);
     if (deviceCount < 0) {
@@ -342,12 +370,19 @@ int USBMux::Reload(void) {
         deviceCount = 0;
         return 0;
     }
+
     return 1;
 }
+#endif // __APPLE__
 
 usbmuxd_device_info_t* USBMux::NextDevice(void) {
-    if (iter >= deviceCount) return 0;
-    return &deviceList[iter++];
+    usbmuxd_device_info_t* device;
+    if (iter < deviceCount) {
+        device = &deviceList[iter++];
+        if (device && device->handle)
+            return device;
+    }
+    return 0;
 }
 
 int USBMux::Connect(int device, int port) {

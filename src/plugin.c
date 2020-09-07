@@ -788,7 +788,10 @@ static bool refresh_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
 
     iosMgr->Reload();
     iosMgr->ResetIter();
-    // TODO reload ios devices
+    while ((iosdevice = iosMgr->NextDevice()) != NULL) {
+        dlog("IOS: handle:%d serial:%s\n", iosdevice->handle, iosdevice->udid);
+        obs_property_list_add_string(p, iosdevice->udid, iosdevice->udid);
+    }
 
 out:
     obs_property_list_add_string(p, TEXT_USE_WIFI, OPT_DEVICE_ID_WIFI);
@@ -841,8 +844,12 @@ static obs_properties_t *plugin_properties(void *data) {
 
     if (plugin->iosMgr) {
         plugin->iosMgr->ResetIter();
-        // TODO reload ios devices
+        while ((iosdevice = plugin->iosMgr->NextDevice()) != NULL) {
+            dlog("IOS: handle:%d serial:%s\n", iosdevice->handle, iosdevice->udid);
+            obs_property_list_add_string(cp, iosdevice->udid, iosdevice->udid);
+        }
     }
+
     obs_property_list_add_string(cp, TEXT_USE_WIFI, OPT_DEVICE_ID_WIFI);
     obs_properties_add_button(ppts, OPT_REFRESH, TEXT_REFRESH, refresh_clicked);
 
@@ -866,13 +873,7 @@ static void plugin_defaults(obs_data_t *settings) {
     dlog("plugin_defaults");
     obs_data_set_default_bool(settings, OPT_IS_ACTIVATED, false);
     obs_data_set_default_bool(settings, OPT_SYNC_AV, false);
-    obs_data_set_default_bool(settings, OPT_USE_HW_ACCEL,
-#ifdef __linux__
-    false
-#else
-    true
-#endif
-    );
+    obs_data_set_default_bool(settings, OPT_USE_HW_ACCEL, true);
     obs_data_set_default_bool(settings, OPT_ENABLE_AUDIO, false);
     obs_data_set_default_bool(settings, OPT_DEACTIVATE_WNS, false);
     obs_data_set_default_int(settings, OPT_CONNECT_PORT, 1212);

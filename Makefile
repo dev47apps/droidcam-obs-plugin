@@ -30,6 +30,7 @@ ifeq ($(UNAME),Linux)
 ## LINUX ##
 	INCLUDES += -I/usr/include/obs
 	LDD_LIBS += -lobs
+	LDD_LIBS += -lusbmuxd
 	LDD_FLAG += -shared
 
 run:

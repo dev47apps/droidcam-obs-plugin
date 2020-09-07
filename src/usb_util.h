@@ -41,7 +41,7 @@ private:
 
     HMODULE hModule;
 #else
-    int *hModule;
+    void* hModule;
 #endif
 public:
     int iter;
