@@ -308,7 +308,7 @@ static void *video_decode_thread(void *data) {
         }
 
         if (got_output) {
-            plugin->obs_video_frame.timestamp = data_packet->pts;
+            plugin->obs_video_frame.timestamp = data_packet->pts * 1000;
             //if (flip) plugin->obs_video_frame.flip = !plugin->obs_video_frame.flip;
     #if 0
             dlog("output video: %dx%d %lu",
@@ -510,7 +510,7 @@ do_audio_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
     }
 
     if (got_output) {
-        plugin->obs_audio_frame.timestamp = data_packet->pts;
+        plugin->obs_audio_frame.timestamp = data_packet->pts * 1000;
 #if 0
         dlog("output audio: %d frames: %d HZ, Fmt %d, Chan %d,  pts %lu",
             plugin->obs_audio_frame.frames,

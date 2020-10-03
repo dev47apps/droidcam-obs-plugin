@@ -119,7 +119,7 @@ int FFMpegDecoder::init(uint8_t* header, enum AVCodecID id, bool use_hw)
 
 	decoder->flags |= AV_CODEC_FLAG_LOW_DELAY;
 	decoder->flags2 |= AV_CODEC_FLAG2_FAST;
-	// decoder->flags2 |= AV_CODEC_FLAG2_CHUNKS;
+	decoder->flags2 |= AV_CODEC_FLAG2_CHUNKS;
 	decoder->thread_type = FF_THREAD_SLICE;
 	ready = true;
 	return 0;

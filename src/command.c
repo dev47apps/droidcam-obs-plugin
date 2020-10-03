@@ -150,8 +150,10 @@ AdbMgr::AdbMgr() {
 
 AdbMgr::~AdbMgr() {
     int i = 0;
+#if 0
     const char *ss[] = {"kill-server"};
     adb_execute(NULL, ss, ARRAY_LEN(ss), NULL, 0);
+#endif
     for (; i < DEVICES_LIMIT; i++) if(deviceList[i]) delete deviceList[i];
 }
 

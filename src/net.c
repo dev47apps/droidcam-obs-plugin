@@ -58,6 +58,20 @@ static bool set_nonblock(socket_t sock, int nonblock) {
 #endif
 }
 
+// https://stackoverflow.com/a/2939145
+static int set_recv_timeout(socket_t sock, int tv_sec) {
+#if _WIN32
+    DWORD timeout = tv_sec * 1000;
+#else
+    struct timeval timeout;
+    timeout.tv_sec = tv_sec;
+    timeout.tv_usec = 0;
+#endif
+
+    return setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO,
+        (char*)&timeout, sizeof(timeout));
+}
+
 socket_t
 net_connect_and_ping(const char* ip, uint16_t port) {
     int len;
@@ -139,6 +153,7 @@ ERROR_OUT:
 
     len = 65536 * 4;
     setsockopt(sock, SOL_SOCKET, SO_RCVBUF, (char *) &len, sizeof(int));
+    set_recv_timeout(sock, 5);
     return sock;
 }
 
