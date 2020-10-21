@@ -26,7 +26,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "buffer_util.h"
 #include "usb_util.h"
 
-#define VERSION_TEXT "v1.1"
+#define VERSION_TEXT "v1.1.1"
 #define FPS 25
 #define MILLI_SEC 1000
 #define NANO_SEC  1000000000
@@ -510,7 +510,7 @@ do_audio_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
     }
 
     if (got_output) {
-        plugin->obs_audio_frame.timestamp = data_packet->pts * 1000;
+        plugin->obs_audio_frame.timestamp = os_gettime_ns(); // data_packet->pts * 1000;
 #if 0
         dlog("output audio: %d frames: %d HZ, Fmt %d, Chan %d,  pts %lu",
             plugin->obs_audio_frame.frames,
@@ -857,7 +857,7 @@ static void plugin_update(void *data, obs_data_t *settings) {
     plugin->deactivateWNS = obs_data_get_bool(settings, OPT_DEACTIVATE_WNS);
     plugin->enable_audio  = obs_data_get_bool(settings, OPT_ENABLE_AUDIO);
     plugin->use_hw = obs_data_get_bool(settings, OPT_USE_HW_ACCEL);
-    bool sync_av = obs_data_get_bool(settings, OPT_SYNC_AV);
+    bool sync_av = false; // obs_data_get_bool(settings, OPT_SYNC_AV);
     bool activated = obs_data_get_bool(settings, OPT_IS_ACTIVATED);
 
     ilog("plugin_udpate: activated=%d (actual=%d) audio=%d sync_av=%d",
@@ -925,7 +925,7 @@ static obs_properties_t *plugin_properties(void *data) {
     obs_properties_add_bool(ppts, OPT_USE_HW_ACCEL, TEXT_USE_HW_ACCEL);
     obs_properties_add_bool(ppts, OPT_DEACTIVATE_WNS, TEXT_DWNS);
     obs_properties_add_bool(ppts, OPT_ENABLE_AUDIO, TEXT_ENABLE_AUDIO);
-    obs_properties_add_bool(ppts, OPT_SYNC_AV, TEXT_SYNC_AV);
+    // obs_properties_add_bool(ppts, OPT_SYNC_AV, TEXT_SYNC_AV);
 
     if (activated) {
         toggle_ppts(ppts, false);
