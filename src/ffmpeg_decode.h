@@ -47,9 +47,11 @@ extern "C" {
 struct FFMpegDecoder : Decoder {
 	AVCodecContext *decoder;
 	AVCodec *codec;
-
-	AVFrame *hw_frame;
+	AVPacket *packet;
+	AVBufferRef *hw_ctx;
+	AVFrame *frame_hw;
 	AVFrame *frame;
+	enum AVPixelFormat hw_pix_fmt;
 	bool hw;
 	bool catchup;
 	bool b_frame_check;
@@ -61,8 +63,11 @@ struct FFMpegDecoder : Decoder {
 
 		decoder = NULL;
 		codec = NULL;
-		hw_frame = NULL;
+		packet = NULL;
+		hw_ctx = NULL;
 		frame = NULL;
+		frame_hw = NULL;
+		hw_pix_fmt = AV_PIX_FMT_NONE;
 		hw = false;
 		catchup = false;
 		b_frame_check = false;

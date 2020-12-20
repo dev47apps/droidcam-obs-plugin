@@ -10,7 +10,7 @@
 #define OPT_REFRESH           "refresh"
 #define OPT_DEACTIVATE_WNS    "deactivate_wns"
 #define OPT_SYNC_AV           "sync_av"
-#define OPT_USE_HW_ACCEL      "use_hw_accel"
+#define OPT_USE_HW_ACCEL      "allow_hw_accel"
 #define OPT_IS_ACTIVATED      "activated"
 #define OPT_ENABLE_AUDIO      "enable_aduio"
 #define OPT_DEVICE_LIST       "device_list"
@@ -32,7 +32,7 @@
 
 #define PING_REQ "GET /ping"
 #define AUDIO_REQ "GET /v1/audio"
-#define VIDEO_REQ "GET /v3/video/%s/%s"
+#define VIDEO_REQ "GET /v3/video/%s/%s/client/%s/nonce/%d/"
 
 #define ADB_LOCALHOST_IP "127.0.0.1"
 #endif

@@ -224,6 +224,7 @@ bool AdbMgr::Reload(void) {
         if (++i == DEVICES_LIMIT) break;
     } while ((p = strtok_r(NULL, "\n", &n)) != NULL);
 
+    for (; i < DEVICES_LIMIT; i++) if(deviceList[i]){ delete deviceList[i]; deviceList[i]=0; }
     return true;
 }
 
@@ -236,12 +237,12 @@ static void GetModel(AdbDevice *dev) {
         char *p = buf;
         char *end = buf + sizeof(dev->model) - 2;
         while (p < end && (isalnum(*p) || *p == ' ' || *p == '-' || *p == '_')) p++;
-        memcpy(dev->model, buf, p - buf);
+        snprintf(dev->model, sizeof(dev->model), "%.*s (%.*s)", (int) (p - buf), buf, (int) sizeof(dev->serial)/2, dev->serial);
         dlog("model: %s", dev->model);
     }
 }
 
-AdbDevice* AdbMgr::NextDevice(int *is_offline) {
+AdbDevice* AdbMgr::NextDevice(int *is_offline, int get_name) {
     #define STATE_DEVICE "device"
     const char* device = STATE_DEVICE;
 
@@ -257,8 +258,7 @@ AdbDevice* AdbMgr::NextDevice(int *is_offline) {
 
         AdbDevice* dev = deviceList[iter];
         iter++;
-        if (!*is_offline && dev->model[0] == 0)
-           GetModel(dev);
+        if (get_name && *is_offline == 0) GetModel(dev);
         return dev;
     }
     return 0;
@@ -295,12 +295,12 @@ void AdbMgr::ClearForwards(const char *serial) {
 USBMux::USBMux() {
     const char *errmsg = "Error loading usbmuxd dll, iOS USB support n/a";
     deviceList = NULL;
+    hModule = NULL;
 
 #ifdef _WIN32
     const char *usbmuxd_dll = PLUGIN_DATA_DIR PATH_SEPARATOR "usbmuxd.dll";
     if (!FileExists(usbmuxd_dll)) {
         elog("iOS USB support not available");
-        hModule = NULL;
         return;
     }
 
@@ -333,7 +333,6 @@ USBMux::USBMux() {
 #endif
 
 #ifdef __APPLE__
-    hModule = this; // noop
     (void) errmsg;
     return;
 #endif
@@ -358,14 +357,12 @@ USBMux::~USBMux() {
 #endif // __APPLE__
 }
 
-int USBMux::Reload(void)
+int USBMux::Reload(void) {
 #ifdef __APPLE__
-{
     deviceCount = 0;
     return 0;
-}
+
 #else // _WIN32 || _Linux
-{
     if (!hModule) {
         deviceCount = 0;
         return 0;
@@ -379,10 +376,9 @@ int USBMux::Reload(void)
         deviceCount = 0;
         return 0;
     }
-
     return 1;
-}
 #endif // __APPLE__
+}
 
 usbmuxd_device_info_t* USBMux::NextDevice(void) {
     usbmuxd_device_info_t* device;

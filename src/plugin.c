@@ -26,7 +26,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "buffer_util.h"
 #include "usb_util.h"
 
-#define VERSION_TEXT "v1.1.1"
+#define VERSION_TEXT "120"
 #define FPS 25
 #define MILLI_SEC 1000
 #define NANO_SEC  1000000000
@@ -87,6 +87,7 @@ struct droidcam_obs_plugin {
     bool audio_running;
     bool video_running;
     int video_resolution;
+    int usb_port;
     enum VideoFormat video_format;
     struct active_device_info device_info;
     struct obs_source_audio obs_audio_frame;
@@ -95,54 +96,6 @@ struct droidcam_obs_plugin {
 
     //Queue<Action> actionQueue;
 };
-
-/* TODO and squash
-os_performance_token_t* perf_token;
-if (s->perf_token) {
-    os_end_high_performance(s->perf_token);
-}
-s->perf_token = os_request_high_performance("NDI Receiver Thread");
-...
-os_end_high_performance(s->perf_token);
-s->perf_token = NULL;
-*/
-#define ADB_PORT_START 7173
-#define ADB_PORT_LAST  7203
-int adb_port = ADB_PORT_START;
-
-#if 0
-test_image(&plugin->obs_video_frame, 320);
-plugin->obs_video_frame.timestamp = os_gettime_ns();
-obs_source_output_video2(plugin->source, &plugin->obs_video_frame);
-
-static void test_image(struct obs_source_frame2 *frame, size_t size) {
-    size_t y, x;
-    uint8_t *pixels = (uint8_t *)malloc(size * size * 4);
-    if (!pixels) return;
-
-    frame->data[0] = pixels;
-    frame->linesize[0] = size * 4;
-    frame->format = VIDEO_FORMAT_BGRX;
-    frame->width = size;
-    frame->height = size;
-
-    uint8_t *p = pixels;
-    for (y = 0; y < size; y++) {
-        for (x = 0; x < size/4; x++) {
-            *p++ = 0; *p++ = 0; *p++ = 0xFF; p++;
-        }
-        for (x = 0; x < size/4; x++) {
-            *p++ = 0; *p++ = 0xFF; *p++ = 0; p++;
-        }
-        for (x = 0; x < size/4; x++) {
-            *p++ = 0xFF; *p++ = 0; *p++ = 0; p++;
-        }
-        for (x = 0; x < size/4; x++) {
-            *p++ = 0x80; *p++ = 0x80; *p++ = 0x80; p++;
-        }
-    }
-}
-#endif
 
 static socket_t connect(struct droidcam_obs_plugin *plugin) {
     AdbDevice* dev;
@@ -157,7 +110,7 @@ static socket_t connect(struct droidcam_obs_plugin *plugin) {
     }
 
     if (device_info->type == DeviceType::ADB) {
-        int is_offline, port;
+        int is_offline;
         adbMgr->Reload();
         adbMgr->ResetIter();
         while ((dev = adbMgr->NextDevice(&is_offline)) != NULL) {
@@ -168,20 +121,24 @@ static socket_t connect(struct droidcam_obs_plugin *plugin) {
                     goto out;
                 }
 
-                if (adb_port > ADB_PORT_LAST) {
+                int port_start = device_info->port + (adbMgr->iter * 10);
+                if (plugin->usb_port < port_start) {
+                    plugin->usb_port = port_start;
+                }
+                else if (plugin->usb_port > (port_start + 8)) {
                     elog("warning: excessive adb port usage!");
-                    adb_port = ADB_PORT_START;
-                    adbMgr->ClearForwards(NULL);
+                    plugin->usb_port = port_start;
+                    adbMgr->ClearForwards(dev->serial);
                 }
 
-                port = adb_port++;
-                dlog("ADB: mapping %d -> %d\n", port, device_info->port);
-                if (!adbMgr->AddForward(dev->serial, port, device_info->port)) {
+                dlog("ADB: mapping %d -> %d\n", plugin->usb_port, device_info->port);
+                if (!adbMgr->AddForward(dev->serial, plugin->usb_port, device_info->port)) {
                     elog("adb_forward failed");
+                    plugin->usb_port++;
                     goto out;
                 }
 
-                socket_t rc = net_connect(ADB_LOCALHOST_IP, port);
+                socket_t rc = net_connect(ADB_LOCALHOST_IP, plugin->usb_port);
                 if (rc > 0) return rc;
 
                 elog("adb connect failed");
@@ -380,7 +337,7 @@ FAIL_OUT:
 static void *video_thread(void *data) {
     droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
     socket_t sock = INVALID_SOCKET;
-    char video_req[32];
+    char video_req[64];
     int video_req_len = 0;
 
     ilog("video_thread start");
@@ -404,7 +361,8 @@ static void *video_thread(void *data) {
             if (video_req_len == 0) {
                 video_req_len = snprintf(video_req, sizeof(video_req), VIDEO_REQ,
                     VideoFormatNames[plugin->video_format][1],
-                    Resolutions[plugin->video_resolution]);
+                    Resolutions[plugin->video_resolution],
+                    VERSION_TEXT, 5912);
                 dlog("%s", video_req);
             }
 
@@ -438,7 +396,8 @@ LOOP:
 
         if (plugin->video_decoder) {
             while (plugin->video_decoder->recieveQueue.items.size() < plugin->video_decoder->alloc_count
-            && PLUGIN_RUNNING()){
+            && PLUGIN_RUNNING())
+            {
                 ilog("waiting for decode thread: %lu/%lu",
                     plugin->video_decoder->recieveQueue.items.size(),
                     plugin->video_decoder->alloc_count);
@@ -624,9 +583,9 @@ static void plugin_destroy(void *data) {
 }
 
 static void *plugin_create(obs_data_t *settings, obs_source_t *source) {
-    ilog("create(source=%p) " VERSION_TEXT, source);
+    ilog("create(source=%p) r" VERSION_TEXT, source);
     obs_source_set_async_unbuffered(source, true);
-    obs_data_set_string(settings, OPT_VERSION, VERSION_TEXT);
+    // obs_data_set_string(settings, OPT_VERSION, "r" VERSION_TEXT);
 
     droidcam_obs_plugin *plugin = new droidcam_obs_plugin();
     plugin->source = source;
@@ -634,6 +593,7 @@ static void *plugin_create(obs_data_t *settings, obs_source_t *source) {
     plugin->video_running = false;
     plugin->adbMgr = new AdbMgr();
     plugin->iosMgr = new USBMux();
+    plugin->usb_port = 0;
     plugin->use_hw = obs_data_get_bool(settings, OPT_USE_HW_ACCEL);
     plugin->video_format = (VideoFormat) obs_data_get_int(settings, OPT_VIDEO_FORMAT);
     plugin->video_resolution = obs_data_get_int(settings, OPT_RESOLUTION);
@@ -729,6 +689,7 @@ static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
 
     bool activated = obs_data_get_bool(settings, OPT_IS_ACTIVATED);
     if (activated) {
+        plugin->usb_port = 0;
         plugin->activated = false;
         toggle_ppts(ppts, true);
         obs_data_set_bool(settings, OPT_IS_ACTIVATED, false);
@@ -829,10 +790,9 @@ static bool refresh_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
         goto out;
     }
 
-    adbMgr->ClearForwards(NULL);
     adbMgr->Reload();
     adbMgr->ResetIter();
-    while ((dev = adbMgr->NextDevice(&is_offline)) != NULL) {
+    while ((dev = adbMgr->NextDevice(&is_offline, 1)) != NULL) {
         char *label = dev->model[0] != 0 ? dev->model : dev->serial;
         size_t idx = obs_property_list_add_string(p, label, dev->serial);
         if (is_offline)
@@ -900,7 +860,7 @@ static obs_properties_t *plugin_properties(void *data) {
     cp = obs_properties_get(ppts, OPT_DEVICE_LIST);
     if (plugin->adbMgr) {
         plugin->adbMgr->ResetIter();
-        while ((dev = plugin->adbMgr->NextDevice(&is_offline)) != NULL) {
+        while ((dev = plugin->adbMgr->NextDevice(&is_offline, 1)) != NULL) {
             char *label = dev->model[0] != 0 ? dev->model : dev->serial;
             size_t idx = obs_property_list_add_string(cp, label, dev->serial);
             if (is_offline) obs_property_list_item_disable(cp, idx, true);
@@ -922,10 +882,10 @@ static obs_properties_t *plugin_properties(void *data) {
     obs_properties_add_int(ppts, OPT_CONNECT_PORT, "DroidCam Port", 1, 65535, 1);
 
     cp = obs_properties_add_button(ppts, OPT_CONNECT, TEXT_CONNECT, connect_clicked);
-    obs_properties_add_bool(ppts, OPT_USE_HW_ACCEL, TEXT_USE_HW_ACCEL);
-    obs_properties_add_bool(ppts, OPT_DEACTIVATE_WNS, TEXT_DWNS);
     obs_properties_add_bool(ppts, OPT_ENABLE_AUDIO, TEXT_ENABLE_AUDIO);
     // obs_properties_add_bool(ppts, OPT_SYNC_AV, TEXT_SYNC_AV);
+    obs_properties_add_bool(ppts, OPT_DEACTIVATE_WNS, TEXT_DWNS);
+    obs_properties_add_bool(ppts, OPT_USE_HW_ACCEL, TEXT_USE_HW_ACCEL);
 
     if (activated) {
         toggle_ppts(ppts, false);
@@ -939,7 +899,7 @@ static void plugin_defaults(obs_data_t *settings) {
     dlog("plugin_defaults");
     obs_data_set_default_bool(settings, OPT_IS_ACTIVATED, false);
     obs_data_set_default_bool(settings, OPT_SYNC_AV, false);
-    obs_data_set_default_bool(settings, OPT_USE_HW_ACCEL, true);
+    obs_data_set_default_bool(settings, OPT_USE_HW_ACCEL, false);
     obs_data_set_default_bool(settings, OPT_ENABLE_AUDIO, false);
     obs_data_set_default_bool(settings, OPT_DEACTIVATE_WNS, false);
     obs_data_set_default_int(settings, OPT_CONNECT_PORT, 4747);

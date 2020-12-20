@@ -6,8 +6,8 @@
 
 struct AdbDevice {
     char serial[80];
-    char model[30];
-    char state[18];
+    char model[80];
+    char state[32];
     AdbDevice(){}
     ~AdbDevice(){}
 };
@@ -21,7 +21,7 @@ struct AdbMgr {
     bool Reload(void);
 
     inline void ResetIter(void){ iter = 0; }
-    AdbDevice* NextDevice(int *is_offline);
+    AdbDevice* NextDevice(int *is_offline, int get_name = 0);
     bool AddForward(const char *serial, int local_port, int remote_port);
     void ClearForwards(const char *serial);
 };
