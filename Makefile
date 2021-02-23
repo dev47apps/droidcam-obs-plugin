@@ -1,4 +1,4 @@
-# Copyright (C) 2020 github.com/aramg
+# Copyright (C) 2021 DEV47APPS, github.com/dev47apps
 
 DATA_DIR = data
 BUILD_DIR = build

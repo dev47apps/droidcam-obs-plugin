@@ -1,6 +1,6 @@
 /*
 	Copyright (C) 2014 by Hugh Bailey <obs.jim@gmail.com>
-	Copyright (C) 2020 github.com/aramg
+	Copyright (C) 2021 DEV47APPS, github.com/dev47apps
 
 	This program is free software: you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by

@@ -1,5 +1,5 @@
 /*
-Copyright (C) 2020 github.com/aramg
+Copyright (C) 2021 DEV47APPS, github.com/dev47apps
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -820,7 +820,7 @@ static void plugin_update(void *data, obs_data_t *settings) {
     bool sync_av = false; // obs_data_get_bool(settings, OPT_SYNC_AV);
     bool activated = obs_data_get_bool(settings, OPT_IS_ACTIVATED);
 
-    ilog("plugin_udpate: activated=%d (actual=%d) audio=%d sync_av=%d",
+    dlog("plugin_udpate: activated=%d (actual=%d) audio=%d sync_av=%d",
         plugin->activated,
         activated,
         plugin->enable_audio,
