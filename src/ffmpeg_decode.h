@@ -57,10 +57,6 @@ struct FFMpegDecoder : Decoder {
 	bool b_frame_check;
 
 	FFMpegDecoder(void) {
-		ready = false;
-		failed = false;
-		alloc_count = 0;
-
 		decoder = NULL;
 		codec = NULL;
 		packet = NULL;

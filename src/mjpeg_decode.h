@@ -15,10 +15,6 @@ struct MJpegDecoder : Decoder {
     int mSubsamp;
 
     MJpegDecoder(void) {
-        ready = false;
-        failed = false;
-        alloc_count = 0;
-
         tj = NULL;
         frameBuf = NULL;
         mSubsamp = 0;

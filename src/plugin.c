@@ -26,16 +26,12 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "buffer_util.h"
 #include "usb_util.h"
 
-#define VERSION_TEXT "120"
+#define VERSION_TEXT "121"
 #define FPS 25
 #define MILLI_SEC 1000
 #define NANO_SEC  1000000000
 
 #define PLUGIN_RUNNING() (os_event_try(plugin->stop_signal) == EAGAIN)
-
-enum class Action {
-    None,
-};
 
 enum class DeviceType {
     NONE,
@@ -93,8 +89,6 @@ struct droidcam_obs_plugin {
     struct obs_source_audio obs_audio_frame;
     struct obs_source_frame2 obs_video_frame;
     uint64_t time_start;
-
-    //Queue<Action> actionQueue;
 };
 
 static socket_t connect(struct droidcam_obs_plugin *plugin) {
@@ -362,6 +356,7 @@ static void *video_thread(void *data) {
                 video_req_len = snprintf(video_req, sizeof(video_req), VIDEO_REQ,
                     VideoFormatNames[plugin->video_format][1],
                     Resolutions[plugin->video_resolution],
+                    plugin->usb_port,
                     VERSION_TEXT, 5912);
                 dlog("%s", video_req);
             }
@@ -901,7 +896,7 @@ static void plugin_defaults(obs_data_t *settings) {
     obs_data_set_default_bool(settings, OPT_SYNC_AV, false);
     obs_data_set_default_bool(settings, OPT_USE_HW_ACCEL, false);
     obs_data_set_default_bool(settings, OPT_ENABLE_AUDIO, false);
-    obs_data_set_default_bool(settings, OPT_DEACTIVATE_WNS, false);
+    obs_data_set_default_bool(settings, OPT_DEACTIVATE_WNS, true);
     obs_data_set_default_int(settings, OPT_CONNECT_PORT, 4747);
 }
 

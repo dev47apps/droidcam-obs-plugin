@@ -59,6 +59,12 @@ struct Decoder {
     bool ready;
     bool failed;
 
+    Decoder(void) {
+        alloc_count = 0;
+        ready = false;
+        failed = false;
+    }
+
     virtual ~Decoder(void) {
         DataPacket* packet;
         while ((packet = recieveQueue.next_item()) != NULL) {

@@ -32,7 +32,7 @@
 
 #define PING_REQ "GET /ping"
 #define AUDIO_REQ "GET /v1/audio"
-#define VIDEO_REQ "GET /v3/video/%s/%s/client/%s/nonce/%d/"
+#define VIDEO_REQ "GET /v4/video/%s/%s/port/%d/client/%s/nonce/%d/"
 
 #define ADB_LOCALHOST_IP "127.0.0.1"
 #endif

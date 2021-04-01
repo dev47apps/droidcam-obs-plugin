@@ -101,14 +101,13 @@ int FFMpegDecoder::init(uint8_t* header, enum AVCodecID id, bool use_hw)
 		// https://wiki.multimedia.cx/index.php/MPEG-4_Audio
 		static int aac_frequencies[] = {96000,88200,64000,48000,44100,32000,24000,22050,16000,12000,11025,8000};
 		if (!header) {
-			blog(LOG_ERROR, "missing AAC header required to init decoder");
+			elog("missing AAC header required to init decoder");
 			return -1;
 		}
 
 		int sr_idx = ((header[0] << 1) | (header[1] >> 7)) & 0x1F;
-		ilog("sr_idx=%d [0x%2x 0x%2x]", sr_idx, header[0], header[1]);
-		if (sr_idx < 0 || sr_idx >= (int)(sizeof(aac_frequencies) / sizeof(int))) {
-			blog(LOG_ERROR, "failed to parse AAC header, sr_idx=%d [0x%2x 0x%2x]", sr_idx, header[0], header[1]);
+		if (sr_idx < 0 || sr_idx >= (int)ARRAY_LEN(aac_frequencies)) {
+			elog("failed to parse AAC header, sr_idx=%d [0x%2x 0x%2x]", sr_idx, header[0], header[1]);
 			return -1;
 		}
 		decoder->sample_rate = aac_frequencies[sr_idx];
@@ -283,7 +282,7 @@ void FFMpegDecoder::push_ready_packet(DataPacket* packet)
 
 	decodeQueue.add_item(packet);
 
-	if (codec->id == AV_CODEC_ID_H264 && decodeQueue.items.size() > 10) {
+	if (codec->id == AV_CODEC_ID_H264 && decodeQueue.items.size() > 25) {
 		catchup = true;
 	}
 	// ((uint64_t)plugin->obs_audio_frame.frames * MILLI_SEC / (uint64_t)plugin->obs_audio_frame.samples_per_sec)
