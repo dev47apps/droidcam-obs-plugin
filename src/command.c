@@ -163,13 +163,13 @@ bool AdbMgr::Reload(void) {
     process_t proc;
     if (disabled) // adb.exe was not found
         return false;
-
+#if 0
     const char *ro[] = {"reconnect", "offline"};
     proc = adb_execute(NULL, ro, ARRAY_LEN(ro), NULL, 0);
     if (!process_check_success(proc, "adb r.o.")) {
         elog("adb r.o. failed");
     }
-
+#endif
     const char *dd[] = {"devices"};
     proc = adb_execute(NULL, dd, ARRAY_LEN(dd), buf, sizeof(buf));
     if (!process_check_success(proc, "adb devices")) {
