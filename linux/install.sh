@@ -15,6 +15,13 @@ if [ -d ~/.config/obs-studio ]; then
 	exit
 fi
 
+if [ -d ~/.var/app/com.obsproject.Studio/config/obs-studio ]; then
+	set -x
+	mkdir -p ~/.var/app/com.obsproject.Studio/config/obs-studio/plugins/
+	cp -R droidcam-obs ~/.var/app/com.obsproject.Studio/config/obs-studio/plugins/
+	exit
+fi
+
 echo "OBS Studio config folder not found."
-echo "Checked ~/.config/obs-studio and ~/snap/obs-studio/current/.config/obs-studio"
+echo "Checked ~/.config/obs-studio, ~/snap/obs-studio/current/.config/obs-studio, and ~/.var/app/com.obsproject.Studio/config/obs-studio"
 exit 1
