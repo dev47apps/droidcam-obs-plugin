@@ -31,12 +31,15 @@
 enum AVHWDeviceType hw_device_list[] = {
 	#ifdef _WIN32
 	AV_HWDEVICE_TYPE_D3D11VA,
+	AV_HWDEVICE_TYPE_CUDA,
 	#endif
 
 	#ifdef __APPLE__
+	AV_HWDEVICE_TYPE_VIDEOTOOLBOX,
 	#endif
 
 	#ifdef __linux__
+	AV_HWDEVICE_TYPE_CUDA,
 	AV_HWDEVICE_TYPE_VAAPI, AV_HWDEVICE_TYPE_VDPAU,
 	#endif
 
@@ -131,7 +134,7 @@ int FFMpegDecoder::init(uint8_t* header, enum AVCodecID id, bool use_hw)
 	// 	decoder->flags |= CODEC_FLAG_TRUNC;
 	decoder->flags |= AV_CODEC_FLAG_LOW_DELAY;
 	decoder->flags2 |= AV_CODEC_FLAG2_FAST;
-	decoder->flags2 |= AV_CODEC_FLAG2_CHUNKS;
+	// decoder->flags2 |= AV_CODEC_FLAG2_CHUNKS;
 	decoder->thread_type = FF_THREAD_SLICE;
 
 	frame = av_frame_alloc();
