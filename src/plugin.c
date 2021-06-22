@@ -26,7 +26,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "buffer_util.h"
 #include "usb_util.h"
 
-#define VERSION_TEXT "122"
+#define VERSION_TEXT "130"
 #define FPS 25
 #define MILLI_SEC 1000
 #define NANO_SEC  1000000000
