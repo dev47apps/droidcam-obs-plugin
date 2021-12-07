@@ -30,7 +30,7 @@ UNAME := $(shell uname -s)
 ifeq ($(UNAME),Linux)
 ## LINUX ##
 	JPEG_DIR ?= /opt/libjpeg-turbo
-	JPEG_LIB  = $(JPEG_DIR)/lib$(shell getconf LONG_BIT)
+	JPEG_LIB ?= $(JPEG_DIR)/lib$(shell getconf LONG_BIT)
 
 	STATIC   += $(JPEG_LIB)/libturbojpeg.a
 	INCLUDES += -I$(JPEG_DIR)/include
