@@ -316,7 +316,7 @@ USBMux::USBMux() {
     usbmuxd_device_list_free = (usbmuxd_device_list_free_t  ) GetProcAddress(hModule, "usbmuxd_device_list_free");
     usbmuxd_connect          = (usbmuxd_connect_t           ) GetProcAddress(hModule, "usbmuxd_connect");
     usbmuxd_disconnect       = (usbmuxd_disconnect_t        ) GetProcAddress(hModule, "usbmuxd_disconnect");
-    #ifndef RELEASE
+    #ifdef DEBUG
     usbmuxd_set_debug_level(9);
     #endif
 #endif
@@ -327,7 +327,7 @@ USBMux::USBMux() {
         elog("%s", errmsg);
         return;
     }
-    #ifndef RELEASE
+    #ifdef DEBUG
     libusbmuxd_set_debug_level(9);
     #endif
 #endif

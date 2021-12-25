@@ -7,14 +7,13 @@
 #define xlog(log_level, format, ...) \
         blog(log_level, "[DroidCamOBS] " format, ##__VA_ARGS__)
 
+#ifdef DEBUG
 #define dlog(format, ...) xlog(LOG_INFO, format, ##__VA_ARGS__)
-#define ilog(format, ...) xlog(LOG_INFO, format, ##__VA_ARGS__)
-#define elog(format, ...) xlog(LOG_WARNING, format, ##__VA_ARGS__)
-
-#ifdef RELEASE
-#undef dlog
+#else
 #define dlog(format, ...) /* */
 #endif
+#define ilog(format, ...) xlog(LOG_INFO, format, ##__VA_ARGS__)
+#define elog(format, ...) xlog(LOG_WARNING, format, ##__VA_ARGS__)
 
 #define HEADER_SIZE 12
 #define NO_PTS UINT64_C(~0)

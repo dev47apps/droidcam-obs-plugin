@@ -32,7 +32,7 @@ cmd_execute(const char *path, const char *const argv[], pid_t *pid, char* out, s
     char scratch[256];
     enum process_result ret = PROCESS_SUCCESS;
 
-#ifndef RELEASE
+#ifdef DEBUG
     argv_to_string(argv, scratch, sizeof(scratch));
     dlog("exec %s", scratch);
 #endif
