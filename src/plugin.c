@@ -838,10 +838,6 @@ static obs_properties_t *plugin_properties(void *data) {
     int is_offline;
     bool activated = obs_data_get_bool(settings, OPT_IS_ACTIVATED);
     ilog("plugin_properties: activated=%d (actual=%d)", plugin->activated, activated);
-    // this looks terrible. todo: add a file menu 'about' area
-    //cp = obs_properties_add_bool(ppts, OPT_VERSION, VERSION_TEXT);
-    //cp = obs_properties_add_text(ppts, OPT_VERSION, obs_module_text("PluginName"), OBS_TEXT_DEFAULT);
-    //obs_property_set_enabled(cp, false);
 
     cp = obs_properties_add_list(ppts, OPT_RESOLUTION, TEXT_RESOLUTION, OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
     for (size_t i = 0; i < ARRAY_LEN(Resolutions); i++)
@@ -902,7 +898,7 @@ static void plugin_defaults(obs_data_t *settings) {
 
 static const char *plugin_getname(void *x) {
     UNUSED_PARAMETER(x);
-    return obs_module_text("PluginName");
+    return obs_module_text("DroidCamOBS");
 }
 
 struct obs_source_info droidcam_obs_info;
