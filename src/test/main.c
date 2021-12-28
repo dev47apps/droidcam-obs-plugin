@@ -2,7 +2,7 @@
 
 #include <plugin.h>
 #include <net.h>
-#include <usb_util.h>
+#include <device_discovery.h>
 #include <command.h>
 
 void test_exec(void) {

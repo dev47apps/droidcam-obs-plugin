@@ -24,7 +24,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "net.h"
 #include "command.h"
-#include "usb_util.h"
+#include "device_discovery.h"
 
 bool process_check_success(process_t proc, const char *name) {
     if (proc == PROCESS_NONE) {
@@ -126,9 +126,6 @@ adb_execute(const char *serial, const char *const adb_cmd[], size_t len, char *o
 }
 
 AdbMgr::AdbMgr() {
-    int i = 0;
-    for (; i < DEVICES_LIMIT; i++) deviceList[i] = NULL;
-
 #if defined(_WIN32) || defined(__APPLE__)
    if (!FileExists(adb_exe)) {
 
@@ -149,12 +146,10 @@ AdbMgr::AdbMgr() {
 }
 
 AdbMgr::~AdbMgr() {
-    int i = 0;
 #if 0
     const char *ss[] = {"kill-server"};
     adb_execute(NULL, ss, ARRAY_LEN(ss), NULL, 0);
 #endif
-    for (; i < DEVICES_LIMIT; i++) if(deviceList[i]) delete deviceList[i];
 }
 
 bool AdbMgr::Reload(void) {
@@ -175,6 +170,8 @@ bool AdbMgr::Reload(void) {
     if (!process_check_success(proc, "adb devices")) {
         return false;
     }
+
+    ClearDeviceList();
 
     size_t i = 0, len;
     char *n, *sep;
@@ -215,16 +212,12 @@ bool AdbMgr::Reload(void) {
         if (len > (sizeof(dev.state)-1)) len = sizeof(dev.state)-1;
         memcpy(dev.state, p, len);
 
-        if (deviceList[i] == NULL)
-            deviceList[i] = new AdbDevice();
-
+        deviceList[i] = new AdbDevice();
         memcpy(deviceList[i]->serial, dev.serial, sizeof(dev.serial));
         memcpy(deviceList[i]->state, dev.state, sizeof(dev.state));
         memset(deviceList[i]->model, 0, sizeof(dev.model));
         if (++i == DEVICES_LIMIT) break;
     } while ((p = strtok_r(NULL, "\n", &n)) != NULL);
-
-    for (; i < DEVICES_LIMIT; i++) if(deviceList[i]){ delete deviceList[i]; deviceList[i]=0; }
     return true;
 }
 
@@ -357,7 +350,7 @@ USBMux::~USBMux() {
 #endif // __APPLE__
 }
 
-int USBMux::Reload(void) {
+bool USBMux::Reload(void) {
 #ifdef __APPLE__
     deviceCount = 0;
     return 0;

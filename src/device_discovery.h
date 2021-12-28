@@ -1,35 +1,77 @@
 // Copyright (C) 2021 DEV47APPS, github.com/dev47apps
-#ifndef __USB_UTIL_H__
-#define __USB_UTIL_H__
+#pragma once
 
 #define DEVICES_LIMIT 8
 
-struct AdbDevice {
+struct Device {
     char serial[80];
     char model[80];
     char state[32];
-    AdbDevice(){}
-    ~AdbDevice(){}
+    char address[64];
+    Device(){}
+    ~Device(){}
 };
 
-struct AdbMgr {
+struct DeviceDiscovery {
     int iter;
+    Device* deviceList[DEVICES_LIMIT];
+    inline void ResetIter(void) {
+        iter = 0;
+    }
+
+    inline void ClearDeviceList() {
+        for (int i = 0; i < DEVICES_LIMIT; i++) {
+            if(deviceList[i]) delete deviceList[i];
+            deviceList[i] = NULL;
+        }
+    }
+
+    DeviceDiscovery() {
+        ClearDeviceList();
+        ResetIter();
+    };
+
+    ~DeviceDiscovery() {
+        ClearDeviceList();
+    };
+};
+
+
+// MARK: WiFi MDNS
+struct MDNS : DeviceDiscovery {
+    int sock;
+    int query_id;
+    char buffer[2048];
+    MDNS();
+    ~MDNS();
+    bool Query(const char* service_name);
+    void FinishQuery(void);
+    Device* NextDevice(void);
+};
+
+
+
+// MARK: Android USB
+typedef struct Device AdbDevice;
+
+struct AdbMgr : DeviceDiscovery {
     int disabled;
-    AdbDevice* deviceList[DEVICES_LIMIT];
     AdbMgr();
     ~AdbMgr();
     bool Reload(void);
 
-    inline void ResetIter(void){ iter = 0; }
     AdbDevice* NextDevice(int *is_offline, int get_name = 0);
     bool AddForward(const char *serial, int local_port, int remote_port);
     void ClearForwards(const char *serial);
 };
 
-#include "usbmuxd.h"
 
-class USBMux {
-private:
+
+// MARK: Apple USB
+#include "usbmuxd.h"
+typedef usbmuxd_device_info_t iOSDevice;
+
+struct USBMux : DeviceDiscovery {
     usbmuxd_device_info_t *deviceList;
 
 #ifdef _WIN32
@@ -43,18 +85,11 @@ private:
 #else
     void* hModule;
 #endif
-public:
-    int iter;
     int deviceCount;
 
     USBMux();
     ~USBMux();
-    int Reload(void);
-    usbmuxd_device_info_t* NextDevice(void);
-    inline void ResetIter(void){ iter = 0; }
+    bool Reload(void);
+    iOSDevice* NextDevice(void);
     int Connect(int device_id, int port);
 };
-
-
-
-#endif

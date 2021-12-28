@@ -24,7 +24,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "mjpeg_decode.h"
 #include "net.h"
 #include "buffer_util.h"
-#include "usb_util.h"
+#include "device_discovery.h"
 
 #define VERSION_TEXT "140"
 #define FPS 25
@@ -67,6 +67,7 @@ struct active_device_info {
 struct droidcam_obs_plugin {
     AdbMgr *adbMgr;
     USBMux *iosMgr;
+    MDNS  *mdnsMgr;
     Decoder* video_decoder;
     Decoder* audio_decoder;
     obs_source_t *source;
@@ -92,8 +93,8 @@ struct droidcam_obs_plugin {
 };
 
 static socket_t connect(struct droidcam_obs_plugin *plugin) {
-    AdbDevice* dev;
-    usbmuxd_device_info_t* iosdevice;
+    Device* dev;
+    iOSDevice* iosdevice;
     AdbMgr* adbMgr = plugin->adbMgr;
     USBMux* iosMgr = plugin->iosMgr;
     struct active_device_info *device_info = &plugin->device_info;
@@ -573,6 +574,7 @@ static void plugin_destroy(void *data) {
         if (plugin->audio_decoder) delete plugin->audio_decoder;
         if (plugin->adbMgr) delete plugin->adbMgr;
         if (plugin->iosMgr) delete plugin->iosMgr;
+        if (plugin->mdnsMgr) delete plugin->mdnsMgr;
         delete plugin;
     }
 }
@@ -588,6 +590,7 @@ static void *plugin_create(obs_data_t *settings, obs_source_t *source) {
     plugin->video_running = false;
     plugin->adbMgr = new AdbMgr();
     plugin->iosMgr = new USBMux();
+    plugin->mdnsMgr = new MDNS();
     plugin->usb_port = 0;
     plugin->use_hw = obs_data_get_bool(settings, OPT_USE_HW_ACCEL);
     plugin->video_format = (VideoFormat) obs_data_get_int(settings, OPT_VIDEO_FORMAT);
@@ -672,8 +675,8 @@ static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
     droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
 
     int is_offline;
-    AdbDevice* dev;
-    usbmuxd_device_info_t* iosdevice;
+    Device* dev;
+    iOSDevice* iosdevice;
     AdbMgr* adbMgr = plugin->adbMgr;
     USBMux* iosMgr = plugin->iosMgr;
     struct active_device_info *device_info = &plugin->device_info;
@@ -770,8 +773,8 @@ out:
 static bool refresh_clicked(obs_properties_t *ppts, obs_property_t *p, void *data) {
     droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
     int is_offline;
-    AdbDevice* dev;
-    usbmuxd_device_info_t* iosdevice;
+    Device* dev;
+    iOSDevice* iosdevice;
     AdbMgr *adbMgr = plugin->adbMgr;
     USBMux* iosMgr = plugin->iosMgr;
     obs_property_t *cp = obs_properties_get(ppts, OPT_CONNECT);
@@ -780,9 +783,11 @@ static bool refresh_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
     p = obs_properties_get(ppts, OPT_DEVICE_LIST);
     obs_property_list_clear(p);
 
+    // TODO mdnsMgr->Query(service, query_record)
+
     if (!adbMgr || !iosMgr){
         ilog("adbMgr=%p, iosMgr=%p in refresh_clicked", adbMgr, iosMgr);
-        goto out;
+        goto skip_usb;
     }
 
     adbMgr->Reload();
@@ -801,7 +806,14 @@ static bool refresh_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
         obs_property_list_add_string(p, iosdevice->udid, iosdevice->udid);
     }
 
-out:
+skip_usb:
+    // TODO -
+    // mdnsMgr->ResetIter()
+    // while ((netdevice = mdnsMgr->NextDevice()) != NULL) {
+    //     dlog("NET: address:%d serial:%s\n", netdevice->serial, netdevice->address);
+    //     obs_property_list_add_string(p, iosdevice->address, iosdevice->serial);
+    // }
+
     obs_property_list_add_string(p, TEXT_USE_WIFI, OPT_DEVICE_ID_WIFI);
     obs_property_set_enabled(cp, true);
     return true;
@@ -833,9 +845,6 @@ static obs_properties_t *plugin_properties(void *data) {
     obs_data_t *settings = obs_source_get_settings(plugin->source);
     obs_properties_t *ppts = obs_properties_create();
     obs_property_t *cp;
-    AdbDevice* dev;
-    usbmuxd_device_info_t* iosdevice;
-    int is_offline;
     bool activated = obs_data_get_bool(settings, OPT_IS_ACTIVATED);
     ilog("plugin_properties: activated=%d (actual=%d)", plugin->activated, activated);
 
@@ -850,6 +859,8 @@ static obs_properties_t *plugin_properties(void *data) {
     obs_properties_add_list(ppts, OPT_DEVICE_LIST, TEXT_DEVICE, OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
     cp = obs_properties_get(ppts, OPT_DEVICE_LIST);
     if (plugin->adbMgr) {
+        AdbDevice* dev;
+        int is_offline;
         plugin->adbMgr->ResetIter();
         while ((dev = plugin->adbMgr->NextDevice(&is_offline, 1)) != NULL) {
             char *label = dev->model[0] != 0 ? dev->model : dev->serial;
@@ -859,6 +870,7 @@ static obs_properties_t *plugin_properties(void *data) {
     }
 
     if (plugin->iosMgr) {
+        iOSDevice* iosdevice;
         plugin->iosMgr->ResetIter();
         while ((iosdevice = plugin->iosMgr->NextDevice()) != NULL) {
             dlog("IOS: handle:%d serial:%s\n", iosdevice->handle, iosdevice->udid);

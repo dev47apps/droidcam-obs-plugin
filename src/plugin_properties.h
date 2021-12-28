@@ -1,6 +1,4 @@
-#ifndef __PLUGIN_PROPS_H__
-#define __PLUGIN_PROPS_H__
-
+#pragma once
 #define OPT_VERSION           "version"
 #define OPT_CONNECT_IP        "wifi_ip"
 #define OPT_CONNECT_PORT      "app_port"
@@ -35,4 +33,5 @@
 #define VIDEO_REQ "GET /v4/video/%s/%s/port/%d/client/%s/nonce/%d/"
 
 #define ADB_LOCALHOST_IP "127.0.0.1"
-#endif
+
+#define DROIDCAM_SERVICE_NAME "_droidcamobs._tcp.local."
