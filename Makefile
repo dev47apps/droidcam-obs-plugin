@@ -3,28 +3,26 @@
 DATA_DIR = data
 BUILD_DIR = build
 
-RM       = rm
+RM       = rm -f
 CXX      = g++
 CXXFLAGS = -std=c++11 -x c++ -Wall -fPIC
 INCLUDES = -Isrc/
 LDD_DIRS =
-LDD_LIBS = -lobs-frontend-api
+LDD_LIBS =
 LDD_FLAG =
 LIB_DLL  = $(BUILD_DIR)/droidcam-obs.so
 STATIC   =
 SRC      = $(shell ls src/*.c src/sys/unix/*.c)
 
-ifeq "$(RELEASE)" "1"
-	CXXFLAGS += -DRELEASE=1
-endif
-
 ifeq ($(OS),Windows_NT)
-lol:
+all:
 	@exit
 endif
 
 .PHONY: run clean
 all: $(LIB_DLL)
+debug: CXXFLAGS += -DDEBUG
+debug: all
 
 UNAME := $(shell uname -s)
 ifeq ($(UNAME),Linux)
@@ -45,24 +43,36 @@ run:
 endif
 
 ifeq ($(UNAME),Darwin)
-## MACOS ##
-	CXXFLAGS += -dead_strip
-	INCLUDES += -I/usr/local/opt/qt5/include
-	INCLUDES += -I/usr/local/opt/qt5/include/QtCore
-	INCLUDES += -I/usr/local/opt/qt5/include/QtWidgets
-	INCLUDES += -I/usr/local/opt/libjpeg-turbo/include
-	INCLUDES += -I../ffmpeg
-	INCLUDES += -I../obs-studio-24.0.2/UI
-	INCLUDES += -I../obs-studio-24.0.2/libobs
-	LDD_DIRS += -L/Applications/OBS.app/Contents/Resources/bin
-	LDD_DIRS += -L/usr/local/opt/libjpeg-turbo/lib
-	LDD_LIBS += -lobs.0 -lavcodec.58 -lavformat.58 -lavutil.56
-	LDD_LIBS += -lturbojpeg
-	LDD_FLAG += -bundle
+# macOS
+# Variables with ?= can be overridden
+# Example: `OBS_DIR=/tmp/obs-26.0 ARCH=arm64 make `
+
+QT_DIR     ?= /usr/local/opt/qt5
+FFMPEG_DIR ?= /usr/local/opt/ffmpeg
+JPEG_DIR   ?= /usr/local/opt/libjpeg-turbo
+OBS_DIR    ?= ../obs-studio-24.0.2
+ARCH       ?= x86_64
+
+CXXFLAGS += -dead_strip
+CXXFLAGS += -target $(ARCH)-apple-darwin
+
+# INCLUDES += -I$(QT_DIR)/include
+# INCLUDES += -I$(QT_DIR)/include/QtCore
+# INCLUDES += -I$(QT_DIR)/include/QtWidgets
+INCLUDES += -I$(JPEG_DIR)/include
+INCLUDES += -I$(FFMPEG_DIR)/include
+INCLUDES += -I$(OBS_DIR)/UI -I$(OBS_DIR)/libobs
+
+LDD_DIRS += -L$(JPEG_DIR)/lib
+LDD_DIRS += -L/Applications/OBS.app/Contents/Frameworks
+
+LDD_LIBS += -lobs.0
+LDD_LIBS += -lavcodec.58 -lavformat.58 -lavutil.56
+LDD_LIBS += -lturbojpeg
+LDD_FLAG += -bundle
 
 run:
 	rm ~/Library/ApplicationSupport/obs-studio/logs/* && /Applications/OBS.app/Contents/MacOS/OBS
-## MACOS ##
 endif
 
 $(LIB_DLL): $(SRC)
@@ -70,9 +80,12 @@ $(LIB_DLL): $(SRC)
 
 clean:
 	$(RM) $(BUILD_DIR)/*.o $(BUILD_DIR)/*.so
+	$(RM) test adbz
 
 adbz:
-	gcc -o /tmp/adbz src/test/adbz.c
+	$(CXX) $(CXXFLAGS) -o adbz src/test/adbz.c
 
 test: adbz
-	g++ -DTEST -otest -Isrc/ -Isrc/test/ src/net.c src/command.c src/sys/unix/cmd.c src/test/main.c
+	$(CXX) $(CXXFLAGS) -DDEBUG -DTEST -otest -Isrc/ -Isrc/test/ \
+		src/net.c src/command.c src/sys/unix/cmd.c \
+		src/test/main.c
