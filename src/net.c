@@ -22,15 +22,16 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "net.h"
 
 #ifdef _WIN32
+  #include <ws2tcpip.h>
   #pragma comment(lib,"ws2_32.lib")
   typedef int socklen_t;
 #else
 # include <arpa/inet.h>
+# include <sys/types.h>
+# include <sys/socket.h>
+# include <netdb.h>
 # include <fcntl.h>
 # include <unistd.h>
-  typedef struct sockaddr_in SOCKADDR_IN;
-  typedef struct sockaddr SOCKADDR;
-  typedef struct in_addr IN_ADDR;
 #endif
 
 static bool set_nonblock(socket_t sock, int nonblock) {
@@ -73,50 +74,38 @@ static int set_recv_timeout(socket_t sock, int tv_sec) {
 }
 
 socket_t
-net_connect_and_ping(const char* ip, uint16_t port) {
-    int len;
-    char buf[8];
-    const char *ping_req = PING_REQ;
+net_connect(struct addrinfo *addr, uint16_t port) {
+    struct sockaddr* ai_addr = addr->ai_addr;
+    void *in_addr;
 
-    socket_t sock = net_connect(ip, port);
-    if (sock == INVALID_SOCKET) {
-        return INVALID_SOCKET;
-    }
-    if ((len = net_send_all(sock, ping_req, sizeof(PING_REQ)-1)) <= 0) {
-        elog("send(ping) failed");
-        net_close(sock);
-        return INVALID_SOCKET;
-    }
-
-    if ((len = net_recv(sock, buf, sizeof(buf))) <= 0) {
-        elog("recv(ping) failed");
-        net_close(sock);
-        return INVALID_SOCKET;
+    switch (ai_addr->sa_family) {
+        case AF_INET: {
+            struct sockaddr_in* sa = (struct sockaddr_in*) ai_addr;
+            in_addr = &(sa->sin_addr);
+            sa->sin_port = htons(port);
+            break;
+        }
+        case AF_INET6: {
+            struct sockaddr_in6* sa = (struct sockaddr_in6*) ai_addr;
+            in_addr = &(sa->sin6_addr);
+            sa->sin6_port = htons(port);
+            break;
+        }
     }
 
-    if (len != 4 || memcmp(buf, "pong", 4) != 0) {
-        elog("recv invalid data: %.*s", len, buf);
-        net_close(sock);
-        return INVALID_SOCKET;
-    }
-    return sock;
-}
+    #ifdef DEBUG
+    char str[INET6_ADDRSTRLEN] = {0};
+    inet_ntop(addr->ai_family, in_addr, str, sizeof(str));
+    dlog("trying %s", str);
+    #else
+    (void) in_addr;
+    #endif
 
-socket_t
-net_connect(const char* ip, uint16_t port) {
-    dlog("connect %s:%d", ip, port);
-
-    int len;
-    socket_t sock = socket(AF_INET, SOCK_STREAM, 0);
+    socket_t sock = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
     if (sock == INVALID_SOCKET) {
         elog("socket(): %s", strerror(errno));
         return INVALID_SOCKET;
     }
-
-    SOCKADDR_IN sin;
-    sin.sin_family = AF_INET;
-    sin.sin_addr.s_addr = inet_addr(ip);
-    sin.sin_port = htons(port);
 
     struct timeval timeout;
     timeout.tv_sec = 2;
@@ -127,12 +116,11 @@ net_connect(const char* ip, uint16_t port) {
     FD_SET(sock, &set);
 
     if (!set_nonblock(sock, 1)) {
-ERROR_OUT:
-        net_close(sock);
-        return INVALID_SOCKET;
+        goto ERROR_OUT;
     }
 
-    connect(sock, (SOCKADDR *) &sin, sizeof(sin));
+    connect(sock, addr->ai_addr, addr->ai_addrlen);
+
 #if _WIN32
     if (WSAGetLastError() != WSAEWOULDBLOCK)
         goto ERROR_OUT;
@@ -148,13 +136,42 @@ ERROR_OUT:
         goto ERROR_OUT;
     }
 
-    if (!set_nonblock(sock, 0))
-        goto ERROR_OUT;
+    if (!set_nonblock(sock, 0)) {
+    ERROR_OUT:
+        net_close(sock);
+        return INVALID_SOCKET;
+    }
 
-    len = 65536 * 4;
-    setsockopt(sock, SOL_SOCKET, SO_RCVBUF, (char *) &len, sizeof(int));
-    set_recv_timeout(sock, 5);
     return sock;
+}
+
+socket_t
+net_connect(const char* host, uint16_t port) {
+    dlog("connect %s:%d", host, port);
+
+    struct addrinfo hints = {0}, *addr = 0, *addrs = 0;
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP;
+
+    if (getaddrinfo(host, NULL, &hints, &addrs) != 0) {
+        elog("getaddrinfo failed: %s", strerror(errno));
+        return INVALID_SOCKET;
+    }
+
+    addr = addrs;
+    do {
+        socket_t sock = net_connect(addr, port);
+        if (sock > 0) {
+            int len = 65536 * 4;
+            setsockopt(sock, SOL_SOCKET, SO_RCVBUF, (char *) &len, sizeof(int));
+            set_recv_timeout(sock, 5);
+            return sock;
+        }
+    } while ((addr = addr->ai_next) != NULL);
+
+    freeaddrinfo(addrs);
+    return INVALID_SOCKET;
 }
 
 ssize_t
