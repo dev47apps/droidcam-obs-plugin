@@ -19,7 +19,6 @@
 #include "plugin.h"
 #include "ffmpeg_decode.h"
 #include <obs-ffmpeg-compat.h>
-#include <obs-avc.h>
 
 #if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(58, 9, 100)
 #error LIBAVCODEC VERSION 58,9,100 REQUIRED
@@ -115,10 +114,18 @@ int FFMpegDecoder::init(uint8_t* header, enum AVCodecID id, bool use_hw)
 		}
 		decoder->sample_rate = aac_frequencies[sr_idx];
 		decoder->profile = FF_PROFILE_AAC_LOW;
-		decoder->channel_layout = AV_CH_LAYOUT_MONO;
-		// also hard coded in decode_audio_frame
-		decoder->channels = 1;
-		ilog("audio sample_rate=%d", decoder->sample_rate);
+		decoder->channels = (header[1] >> 3) & 0xF;
+		ilog("audio: sample_rate=%d channels=%d", decoder->sample_rate, decoder->channels);
+		switch (decoder->channels) {
+			case 1:
+				decoder->channel_layout = AV_CH_LAYOUT_MONO;
+				break;
+			case 2:
+				decoder->channel_layout = AV_CH_LAYOUT_STEREO;
+				break;
+			default:
+				decoder->channel_layout = 0; // unknown
+		}
 	}
 
 	if (use_hw) {
@@ -158,15 +165,11 @@ int FFMpegDecoder::init(uint8_t* header, enum AVCodecID id, bool use_hw)
 
 FFMpegDecoder::~FFMpegDecoder(void)
 {
-	if (frame_hw) {
-		av_frame_unref(frame_hw);
-		av_free(frame_hw);
-	}
+	if (frame_hw)
+		av_frame_free(&frame_hw);
 
-	if (frame) {
-		av_frame_unref(frame);
-		av_free(frame);
-	}
+	if (frame)
+		av_frame_free(&frame);
 
 	if (hw_ctx)
 		av_buffer_unref(&hw_ctx);
@@ -177,6 +180,12 @@ FFMpegDecoder::~FFMpegDecoder(void)
 	if (decoder)
 		avcodec_free_context(&decoder);
 }
+
+// TODO:
+// add AV_PIX_FMT_YUVJ420P to obs-ffmpeg-formats.h
+// add convert_color_space to obs-ffmpeg-formats.h
+// remove these duplicates (also in win-dshow)
+// Clean obs-ffmpeg-compat.h duplicate (plugins/obs-ffmpeg & libobs)
 
 static inline enum video_format convert_pixel_format(int f)
 {
@@ -204,6 +213,23 @@ static inline enum video_format convert_pixel_format(int f)
 	return VIDEO_FORMAT_NONE;
 }
 
+static enum video_colorspace
+convert_color_space(enum AVColorSpace s, enum AVColorTransferCharacteristic trc)
+{
+	switch (s) {
+	case AVCOL_SPC_BT709:
+		return (trc == AVCOL_TRC_IEC61966_2_1) ? VIDEO_CS_SRGB : VIDEO_CS_709;
+
+	case AVCOL_SPC_FCC:
+	case AVCOL_SPC_BT470BG:
+	case AVCOL_SPC_SMPTE170M:
+	case AVCOL_SPC_SMPTE240M:
+		return VIDEO_CS_601;
+	default:
+		return VIDEO_CS_DEFAULT;
+	}
+}
+
 static inline enum audio_format convert_sample_format(int f)
 {
 	switch (f) {
@@ -228,12 +254,10 @@ static inline enum audio_format convert_sample_format(int f)
 
 	return AUDIO_FORMAT_UNKNOWN;
 }
-/*
-static inline enum speaker_layout convert_speaker_layout(uint8_t channels)
+
+static inline enum speaker_layout convert_speaker_layout(int channels)
 {
 	switch (channels) {
-	case 0:
-		return SPEAKERS_UNKNOWN;
 	case 1:
 		return SPEAKERS_MONO;
 	case 2:
@@ -252,7 +276,7 @@ static inline enum speaker_layout convert_speaker_layout(uint8_t channels)
 		return SPEAKERS_UNKNOWN;
 	}
 }
-*/
+
 DataPacket* FFMpegDecoder::pull_empty_packet(size_t size)
 {
 	size_t new_size = size + INPUT_BUFFER_PADDING_SIZE;
@@ -339,9 +363,13 @@ GOT_FRAME:
 		? VIDEO_RANGE_FULL : VIDEO_RANGE_PARTIAL;
 
 	if (range != obs_frame->range) {
+		const enum video_colorspace cs = convert_color_space(
+			out_frame->colorspace, out_frame->color_trc);
+
 		video_format_get_parameters(
-			VIDEO_CS_DEFAULT, range, obs_frame->color_matrix,
+			cs, range, obs_frame->color_matrix,
 			obs_frame->color_range_min, obs_frame->color_range_max);
+
 		obs_frame->range = range;
 	}
 
@@ -382,12 +410,10 @@ GOT_FRAME:
 
 	obs_frame->samples_per_sec = frame->sample_rate;
 	obs_frame->frames = frame->nb_samples;
-	obs_frame->speakers = SPEAKERS_MONO;
 
 	if (obs_frame->format == AUDIO_FORMAT_UNKNOWN) {
 		obs_frame->format = convert_sample_format(frame->format);
-		if (obs_frame->format == AUDIO_FORMAT_UNKNOWN)
-			return false;
+		obs_frame->speakers = convert_speaker_layout(decoder->channels);
 	}
 
 	*got_output = true;

@@ -26,7 +26,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "buffer_util.h"
 #include "usb_util.h"
 
-#define VERSION_TEXT "130"
+#define VERSION_TEXT "140"
 #define FPS 25
 #define MILLI_SEC 1000
 #define NANO_SEC  1000000000
@@ -921,7 +921,7 @@ bool obs_module_load(void) {
     droidcam_obs_info.show         = plugin_show;
     droidcam_obs_info.hide         = plugin_hide;
     droidcam_obs_info.update       = plugin_update;
-    //droidcam_obs_info.icon_type    = OBS_ICON_TYPE_CAMERA;
+    droidcam_obs_info.icon_type    = OBS_ICON_TYPE_CUSTOM;
     droidcam_obs_info.get_defaults = plugin_defaults;
     droidcam_obs_info.get_properties = plugin_properties;
     obs_register_source(&droidcam_obs_info);

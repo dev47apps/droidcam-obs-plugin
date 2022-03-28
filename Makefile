@@ -50,7 +50,7 @@ ifeq ($(UNAME),Darwin)
 QT_DIR     ?= /usr/local/opt/qt5
 FFMPEG_DIR ?= /usr/local/opt/ffmpeg
 JPEG_DIR   ?= /usr/local/opt/libjpeg-turbo
-OBS_DIR    ?= ../obs-studio-24.0.2
+OBS_DIR    ?= ../obs-studio-25.0.8
 ARCH       ?= x86_64
 
 CXXFLAGS += -dead_strip

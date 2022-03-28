@@ -97,18 +97,10 @@ bool MJpegDecoder::decode_video(struct obs_source_frame2* obs_frame, DataPacket*
         mSubsamp = subsamp;
     }
 
-    if (VIDEO_RANGE_FULL != obs_frame->range) {
-        const bool success = video_format_get_parameters(
-            VIDEO_CS_601, VIDEO_RANGE_FULL, obs_frame->color_matrix,
+    if (obs_frame->range != VIDEO_RANGE_FULL) {
+        video_format_get_parameters(
+            VIDEO_CS_DEFAULT, VIDEO_RANGE_FULL, obs_frame->color_matrix,
             obs_frame->color_range_min, obs_frame->color_range_max);
-        if (!success) {
-            blog(LOG_ERROR,
-                "Failed to get video format "
-                "parameters for video format %u",
-                VIDEO_CS_601);
-            return false;
-        }
-
         obs_frame->range = VIDEO_RANGE_FULL;
     }
 
