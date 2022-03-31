@@ -27,7 +27,9 @@ struct DeviceDiscovery {
     }
 
     DeviceDiscovery() {
-        ClearDeviceList();
+        for (int i = 0; i < DEVICES_LIMIT; i++) {
+            deviceList[i] = NULL;
+        }
         ResetIter();
     };
 

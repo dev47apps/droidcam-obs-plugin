@@ -57,6 +57,8 @@ const char* Resolutions[] = {
     "1920x1080",
 };
 
+const char *droidcam_service_name = DROIDCAM_SERVICE_NAME;
+
 struct active_device_info {
     DeviceType type;
     int port;
@@ -679,6 +681,7 @@ static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
     iOSDevice* iosdevice;
     AdbMgr* adbMgr = plugin->adbMgr;
     USBMux* iosMgr = plugin->iosMgr;
+    MDNS  *mdnsMgr = plugin->mdnsMgr;
     struct active_device_info *device_info = &plugin->device_info;
 
     obs_data_t *settings = obs_source_get_settings(plugin->source);
@@ -718,7 +721,21 @@ static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
     }
 
     if (device_info->type != DeviceType::NONE)
-        goto skip_usb_check;
+        goto found_device;
+
+    mdnsMgr->ResetIter();
+    while ((dev = mdnsMgr->NextDevice()) != NULL) {
+        dlog("WIFI: serial:%s address:%s\n", dev->serial, dev->address);
+        if (strncmp(device_info->id, dev->serial, sizeof(dev->serial)) == 0) {
+            device_info->type = DeviceType::WIFI;
+            device_info->ip = dev->address;
+            if (!device_info->ip || device_info->ip[0] == 0) {
+                elog("target IP is empty");
+                goto out;
+            }
+            goto found_device;
+        }
+    }
 
     adbMgr->ResetIter();
     while ((dev = adbMgr->NextDevice(&is_offline)) != NULL) {
@@ -730,7 +747,7 @@ static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
             }
 
             device_info->type = DeviceType::ADB;
-            goto skip_usb_check;
+            goto found_device;
         }
     }
 
@@ -739,7 +756,7 @@ static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
         dlog("IOS: serial:%s\n", iosdevice->udid);
         if (strncmp(device_info->id, iosdevice->udid, sizeof(iosdevice->udid)) == 0) {
             device_info->type = DeviceType::IOS;
-            goto skip_usb_check;
+            goto found_device;
         }
     }
 
@@ -748,7 +765,7 @@ static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
         goto out;
     }
 
-skip_usb_check:
+found_device:
     obs_property_set_description(cp, TEXT_DEACTIVATE);
     plugin->video_format = (VideoFormat) obs_data_get_int(settings, OPT_VIDEO_FORMAT);
     plugin->video_resolution = obs_data_get_int(settings, OPT_RESOLUTION);
@@ -777,13 +794,14 @@ static bool refresh_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
     iOSDevice* iosdevice;
     AdbMgr *adbMgr = plugin->adbMgr;
     USBMux* iosMgr = plugin->iosMgr;
+    MDNS  *mdnsMgr = plugin->mdnsMgr;
     obs_property_t *cp = obs_properties_get(ppts, OPT_CONNECT);
     obs_property_set_enabled(cp, false);
 
     p = obs_properties_get(ppts, OPT_DEVICE_LIST);
     obs_property_list_clear(p);
 
-    // TODO mdnsMgr->Query(service, query_record)
+    mdnsMgr->Query(droidcam_service_name);
 
     if (!adbMgr || !iosMgr){
         ilog("adbMgr=%p, iosMgr=%p in refresh_clicked", adbMgr, iosMgr);
@@ -794,6 +812,7 @@ static bool refresh_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
     adbMgr->ResetIter();
     while ((dev = adbMgr->NextDevice(&is_offline, 1)) != NULL) {
         char *label = dev->model[0] != 0 ? dev->model : dev->serial;
+        dlog("ADB: label:%s serial:%s\n", label, dev->serial);
         size_t idx = obs_property_list_add_string(p, label, dev->serial);
         if (is_offline)
             obs_property_list_item_disable(p, idx, true);
@@ -807,12 +826,13 @@ static bool refresh_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
     }
 
 skip_usb:
-    // TODO -
-    // mdnsMgr->ResetIter()
-    // while ((netdevice = mdnsMgr->NextDevice()) != NULL) {
-    //     dlog("NET: address:%d serial:%s\n", netdevice->serial, netdevice->address);
-    //     obs_property_list_add_string(p, iosdevice->address, iosdevice->serial);
-    // }
+    // TODO - parallelize
+    mdnsMgr->ResetIter();
+    while ((dev = mdnsMgr->NextDevice()) != NULL) {
+        char *label = dev->model[0] != 0 ? dev->model : dev->address;
+        dlog("WIFI: label:%s address:%s serial:%s\n", label, dev->address, dev->serial);
+        obs_property_list_add_string(p, label, dev->serial);
+    }
 
     obs_property_list_add_string(p, TEXT_USE_WIFI, OPT_DEVICE_ID_WIFI);
     obs_property_set_enabled(cp, true);

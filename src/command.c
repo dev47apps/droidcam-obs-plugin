@@ -177,7 +177,7 @@ bool AdbMgr::Reload(void) {
     char *n, *sep;
     char *p = strtok_r(buf, "\n", &n);
     do {
-        dlog(": %s", p);
+        dlog("adb: %s", p);
         if (p[0] == ' ' || p[0] == 0) {
             continue;
         }
@@ -230,7 +230,7 @@ static void GetModel(AdbDevice *dev) {
         char *p = buf;
         char *end = buf + sizeof(dev->model) - 2;
         while (p < end && (isalnum(*p) || *p == ' ' || *p == '-' || *p == '_')) p++;
-        snprintf(dev->model, sizeof(dev->model), "%.*s (%.*s)", (int) (p - buf), buf, (int) sizeof(dev->serial)/2, dev->serial);
+        snprintf(dev->model, sizeof(dev->model), "%.*s (usb: %.*s)", (int) (p - buf), buf, (int) sizeof(dev->serial)/2, dev->serial);
         dlog("model: %s", dev->model);
     }
 }
@@ -239,9 +239,8 @@ AdbDevice* AdbMgr::NextDevice(int *is_offline, int get_name) {
     #define STATE_DEVICE "device"
     const char* device = STATE_DEVICE;
 
-    if (iter >= DEVICES_LIMIT) iter = 0;
-
-    if (deviceList[iter]) {
+    if (iter < DEVICES_LIMIT && deviceList[iter])
+    {
         ilog("device %s is %s", deviceList[iter]->serial, deviceList[iter]->state);
         if (memcmp(device, deviceList[iter]->state, sizeof(STATE_DEVICE)-1) == 0) {
             *is_offline = 0;
@@ -249,8 +248,7 @@ AdbDevice* AdbMgr::NextDevice(int *is_offline, int get_name) {
             *is_offline = 1;
         }
 
-        AdbDevice* dev = deviceList[iter];
-        iter++;
+        Device* dev = deviceList[iter++];
         if (get_name && *is_offline == 0) GetModel(dev);
         return dev;
     }
@@ -363,7 +361,7 @@ bool USBMux::Reload(void) {
 
     if (deviceList) usbmuxd_device_list_free(&deviceList);
     deviceCount = usbmuxd_get_device_list(&deviceList);
-    ilog("USBMux: Reload: %d devices", deviceCount);
+    ilog("USBMux: found %d devices", deviceCount);
     if (deviceCount < 0) {
         elog("Could not get iOS device list, usbmuxd not running?");
         deviceCount = 0;
@@ -389,7 +387,7 @@ int USBMux::Connect(int device, int port) {
 #else
 
     int rc;
-    dlog("USBMUX Connect: dev=%d/%d, port=%d", device, deviceCount, port);
+    dlog("USBMUX Connect: dev=%d (of %d), port=%d", device, deviceCount, port);
 
     if (!hModule) {
         elog("USBMUX dll not loaded");
