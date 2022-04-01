@@ -38,6 +38,7 @@ enum class DeviceType {
     WIFI,
     ADB,
     IOS,
+    MDNS,
 };
 
 enum VideoFormat {
@@ -56,8 +57,6 @@ const char* Resolutions[] = {
     "1280x720",
     "1920x1080",
 };
-
-const char *droidcam_service_name = DROIDCAM_SERVICE_NAME;
 
 struct active_device_info {
     DeviceType type;
@@ -99,64 +98,74 @@ static socket_t connect(struct droidcam_obs_plugin *plugin) {
     iOSDevice* iosdevice;
     AdbMgr* adbMgr = plugin->adbMgr;
     USBMux* iosMgr = plugin->iosMgr;
+    MDNS  *mdnsMgr = plugin->mdnsMgr;
+
     struct active_device_info *device_info = &plugin->device_info;
+
     dlog("connect device: id=%s type=%d", device_info->id, (int) device_info->type);
 
     if (device_info->type == DeviceType::WIFI) {
         return net_connect(device_info->ip, device_info->port);
     }
 
-    if (device_info->type == DeviceType::ADB) {
-        int is_offline;
-        adbMgr->Reload();
-        adbMgr->ResetIter();
-        while ((dev = adbMgr->NextDevice(&is_offline)) != NULL) {
-            dlog("checking against serial:%s state:%s\n", dev->serial, dev->state);
-            if (strncmp(device_info->id, dev->serial, sizeof(dev->serial)) == 0) {
-                if (is_offline) {
-                    elog("device is offline...");
-                    goto out;
-                }
-
-                int port_start = device_info->port + ((adbMgr->iter-1) * 10);
-                if (plugin->usb_port < port_start) {
-                    plugin->usb_port = port_start;
-                }
-                else if (plugin->usb_port > (port_start + 8)) {
-                    elog("warning: excessive adb port usage!");
-                    plugin->usb_port = port_start;
-                    adbMgr->ClearForwards(dev->serial);
-                }
-
-                dlog("ADB: mapping %d -> %d\n", plugin->usb_port, device_info->port);
-                if (!adbMgr->AddForward(dev->serial, plugin->usb_port, device_info->port)) {
-                    elog("adb_forward failed");
-                    plugin->usb_port++;
-                    goto out;
-                }
-
-                socket_t rc = net_connect(ADB_LOCALHOST_IP, plugin->usb_port);
-                if (rc > 0) return rc;
-
-                elog("adb connect failed");
-                adbMgr->ClearForwards(dev->serial);
-                goto out;
-            }
+    if (device_info->type == DeviceType::MDNS) {
+        dev = mdnsMgr->GetDevice(device_info->id);
+        if (dev) {
+            return net_connect(dev->address, device_info->port);
         }
 
+        mdnsMgr->Reload();
         goto out;
     }
 
+    if (device_info->type == DeviceType::ADB) {
+        dev = adbMgr->GetDevice(device_info->id);
+        if (dev) {
+            if (adbMgr->DeviceOffline(dev)) {
+                elog("device is offline...");
+                goto out;
+            }
+
+            int port_start = device_info->port + ((adbMgr->Iter()-1) * 10);
+            if (plugin->usb_port < port_start) {
+                plugin->usb_port = port_start;
+            }
+            else if (plugin->usb_port > (port_start + 8)) {
+                elog("warning: excessive adb port usage!");
+                plugin->usb_port = port_start;
+                adbMgr->ClearForwards(dev);
+            }
+
+            dlog("ADB: mapping %d -> %d\n", plugin->usb_port, device_info->port);
+            if (!adbMgr->AddForward(dev, plugin->usb_port, device_info->port)) {
+                elog("adb_forward failed");
+                plugin->usb_port++;
+                goto out;
+            }
+
+            socket_t rc = net_connect(ADB_LOCALHOST_IP, plugin->usb_port);
+            if (rc > 0) return rc;
+
+            elog("adb connect failed");
+            adbMgr->ClearForwards(dev);
+            goto out;
+        }
+
+        adbMgr->Reload();
+        goto out;
+    }
+
+    // TODO ios GetDevice
     if (device_info->type == DeviceType::IOS) {
-        iosMgr->Reload();
         iosMgr->ResetIter();
         while ((iosdevice = iosMgr->NextDevice()) != NULL) {
             dlog("checking against serial:%s\n", iosdevice->udid);
             if (strncmp(device_info->id, iosdevice->udid, sizeof(iosdevice->udid)) == 0) {
-                return iosMgr->Connect(iosMgr->iter - 1, device_info->port);
+                return iosMgr->Connect(iosMgr->Iter() - 1, device_info->port);
             }
         }
 
+        iosMgr->Reload();
         goto out;
     }
 
@@ -676,7 +685,6 @@ static inline void toggle_ppts(obs_properties_t *ppts, bool enable) {
 static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *data) {
     droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
 
-    int is_offline;
     Device* dev;
     iOSDevice* iosdevice;
     AdbMgr* adbMgr = plugin->adbMgr;
@@ -705,52 +713,41 @@ static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
         goto out;
     }
 
-    if (memcmp(device_info->id, OPT_DEVICE_ID_WIFI, sizeof(OPT_DEVICE_ID_WIFI)-1) == 0) {
-        device_info->type = DeviceType::WIFI;
-        device_info->ip = obs_data_get_string(settings, OPT_CONNECT_IP);
-        if (!device_info->ip || device_info->ip[0] == 0) {
-            elog("target IP is empty");
-            goto out;
-        }
-    }
-
     device_info->port = (int) obs_data_get_int(settings, OPT_CONNECT_PORT);
     if (device_info->port <= 0 || device_info->port > 65535) {
         elog("invalid port: %d", device_info->port);
         goto out;
     }
 
-    if (device_info->type != DeviceType::NONE)
+    if (memcmp(device_info->id, OPT_DEVICE_ID_WIFI, sizeof(OPT_DEVICE_ID_WIFI)-1) == 0) {
+        device_info->ip = obs_data_get_string(settings, OPT_CONNECT_IP);
+        if (!device_info->ip || device_info->ip[0] == 0) {
+            elog("target IP is empty");
+            goto out;
+        }
+
+        device_info->type = DeviceType::WIFI;
         goto found_device;
-
-    mdnsMgr->ResetIter();
-    while ((dev = mdnsMgr->NextDevice()) != NULL) {
-        dlog("WIFI: serial:%s address:%s\n", dev->serial, dev->address);
-        if (strncmp(device_info->id, dev->serial, sizeof(dev->serial)) == 0) {
-            device_info->type = DeviceType::WIFI;
-            device_info->ip = dev->address;
-            if (!device_info->ip || device_info->ip[0] == 0) {
-                elog("target IP is empty");
-                goto out;
-            }
-            goto found_device;
-        }
     }
 
-    adbMgr->ResetIter();
-    while ((dev = adbMgr->NextDevice(&is_offline)) != NULL) {
-        dlog("ADB: serial:%s state:%s\n", dev->serial, dev->state);
-        if (strncmp(device_info->id, dev->serial, sizeof(dev->serial)) == 0) {
-            if (is_offline) {
-                elog("adb device is offline");
-                goto out;
-            }
-
-            device_info->type = DeviceType::ADB;
-            goto found_device;
-        }
+    dev = mdnsMgr->GetDevice(device_info->id);
+    if (dev) {
+        device_info->type = DeviceType::MDNS;
+        goto found_device;
     }
 
+    dev = adbMgr->GetDevice(device_info->id);
+    if (dev) {
+        if (adbMgr->DeviceOffline(dev)) {
+            elog("adb device is offline");
+            goto out;
+        }
+
+        device_info->type = DeviceType::ADB;
+        goto found_device;
+    }
+
+    // TODO ios GetDevice
     iosMgr->ResetIter();
     while ((iosdevice = iosMgr->NextDevice()) != NULL) {
         dlog("IOS: serial:%s\n", iosdevice->udid);
@@ -761,7 +758,7 @@ static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
     }
 
     if (device_info->type == DeviceType::NONE) {
-        elog("unable to determine devce type, this should not happen");
+        elog("unable to determine devce type, refresh device list and try again");
         goto out;
     }
 
@@ -789,7 +786,6 @@ out:
 
 static bool refresh_clicked(obs_properties_t *ppts, obs_property_t *p, void *data) {
     droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
-    int is_offline;
     Device* dev;
     iOSDevice* iosdevice;
     AdbMgr *adbMgr = plugin->adbMgr;
@@ -798,39 +794,34 @@ static bool refresh_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
     obs_property_t *cp = obs_properties_get(ppts, OPT_CONNECT);
     obs_property_set_enabled(cp, false);
 
+    ilog("Refresh Device List clicked");
+    mdnsMgr->Reload();
+    adbMgr->Reload();
+    iosMgr->Reload();
+
     p = obs_properties_get(ppts, OPT_DEVICE_LIST);
     obs_property_list_clear(p);
 
-    mdnsMgr->Query(droidcam_service_name);
-
-    if (!adbMgr || !iosMgr){
-        ilog("adbMgr=%p, iosMgr=%p in refresh_clicked", adbMgr, iosMgr);
-        goto skip_usb;
-    }
-
-    adbMgr->Reload();
     adbMgr->ResetIter();
-    while ((dev = adbMgr->NextDevice(&is_offline, 1)) != NULL) {
+    while ((dev = adbMgr->NextDevice()) != NULL) {
+        adbMgr->GetModel(dev);
         char *label = dev->model[0] != 0 ? dev->model : dev->serial;
-        dlog("ADB: label:%s serial:%s\n", label, dev->serial);
+        dlog("ADB: label:%s serial:%s", label, dev->serial);
         size_t idx = obs_property_list_add_string(p, label, dev->serial);
-        if (is_offline)
+        if (adbMgr->DeviceOffline(dev))
             obs_property_list_item_disable(p, idx, true);
     }
 
-    iosMgr->Reload();
     iosMgr->ResetIter();
     while ((iosdevice = iosMgr->NextDevice()) != NULL) {
-        dlog("IOS: handle:%d serial:%s\n", iosdevice->handle, iosdevice->udid);
+        dlog("IOS: handle:%d serial:%s", iosdevice->handle, iosdevice->udid);
         obs_property_list_add_string(p, iosdevice->udid, iosdevice->udid);
     }
 
-skip_usb:
-    // TODO - parallelize
     mdnsMgr->ResetIter();
     while ((dev = mdnsMgr->NextDevice()) != NULL) {
-        char *label = dev->model[0] != 0 ? dev->model : dev->address;
-        dlog("WIFI: label:%s address:%s serial:%s\n", label, dev->address, dev->serial);
+        char *label = dev->model[0] != 0 ? dev->model : dev->serial;
+        dlog("MDNS: label:%s serial:%s", label, dev->serial);
         obs_property_list_add_string(p, label, dev->serial);
     }
 
@@ -878,23 +869,30 @@ static obs_properties_t *plugin_properties(void *data) {
 
     obs_properties_add_list(ppts, OPT_DEVICE_LIST, TEXT_DEVICE, OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
     cp = obs_properties_get(ppts, OPT_DEVICE_LIST);
-    if (plugin->adbMgr) {
-        AdbDevice* dev;
-        int is_offline;
-        plugin->adbMgr->ResetIter();
-        while ((dev = plugin->adbMgr->NextDevice(&is_offline, 1)) != NULL) {
+    {
+        Device* dev;
+        iOSDevice* iosdevice;
+        AdbMgr *adbMgr = plugin->adbMgr;
+        USBMux* iosMgr = plugin->iosMgr;
+        MDNS  *mdnsMgr = plugin->mdnsMgr;
+
+        adbMgr->ResetIter();
+        while ((dev = adbMgr->NextDevice()) != NULL) {
             char *label = dev->model[0] != 0 ? dev->model : dev->serial;
             size_t idx = obs_property_list_add_string(cp, label, dev->serial);
-            if (is_offline) obs_property_list_item_disable(cp, idx, true);
+            if (adbMgr->DeviceOffline(dev))
+                obs_property_list_item_disable(cp, idx, true);
         }
-    }
 
-    if (plugin->iosMgr) {
-        iOSDevice* iosdevice;
-        plugin->iosMgr->ResetIter();
-        while ((iosdevice = plugin->iosMgr->NextDevice()) != NULL) {
-            dlog("IOS: handle:%d serial:%s\n", iosdevice->handle, iosdevice->udid);
+        iosMgr->ResetIter();
+        while ((iosdevice = iosMgr->NextDevice()) != NULL) {
             obs_property_list_add_string(cp, iosdevice->udid, iosdevice->udid);
+        }
+
+        mdnsMgr->ResetIter();
+        while ((dev = mdnsMgr->NextDevice()) != NULL) {
+            char *label = dev->model[0] != 0 ? dev->model : dev->serial;
+            obs_property_list_add_string(cp, label, dev->serial);
         }
     }
 

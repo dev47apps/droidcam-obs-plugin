@@ -147,7 +147,7 @@ net_connect(struct addrinfo *addr, uint16_t port) {
 
 socket_t
 net_connect(const char* host, uint16_t port) {
-    dlog("connect %s:%d", host, port);
+    dlog("connect: %s port %d", host, port);
 
     struct addrinfo hints = {0}, *addr = 0, *addrs = 0;
     hints.ai_family = AF_UNSPEC;

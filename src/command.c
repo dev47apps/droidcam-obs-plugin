@@ -84,6 +84,63 @@ process_print_error(enum process_result err, const char *const argv[]) {
     }
 }
 
+// todo: command.c -> device_discovery.c
+
+void *reload_thread(void *data) {
+    ((DeviceDiscovery*) data) -> Clear();
+    ((DeviceDiscovery*) data) -> DoReload();
+    return 0;
+}
+
+void DeviceDiscovery::Reload(void) {
+    join();
+
+    assert(rthr == 0);
+    if (pthread_create(&pthr, NULL, reload_thread, this) != 0) {
+        elog("Error creating reload thread");
+        return;
+    }
+    rthr = 1;
+}
+
+void DeviceDiscovery::Clear(void) {
+    for (int i = 0; i < DEVICES_LIMIT; i++) {
+        if(deviceList[i]) delete deviceList[i];
+        deviceList[i] = NULL;
+    }
+}
+
+Device* DeviceDiscovery::NextDevice(void) {
+    if (iter < DEVICES_LIMIT && deviceList[iter]) {
+        Device* dev = deviceList[iter++];
+        return dev;
+    }
+
+    return 0;
+}
+
+Device* DeviceDiscovery::GetDevice(const char* serial, size_t length) {
+    for (int i = 0; i < DEVICES_LIMIT; i++) {
+        if (deviceList[i] == NULL)
+            break;
+
+        if (strncmp(deviceList[i]->serial, serial, length) == 0)
+            return deviceList[i];
+    }
+    return NULL;
+}
+
+Device* DeviceDiscovery::AddDevice(const char* serial, size_t length) {
+    for (int i = 0; i < DEVICES_LIMIT; i++) {
+        if (deviceList[i] == NULL) {
+            deviceList[i] = new Device();
+            memcpy(deviceList[i]->serial, serial, length);
+            return deviceList[i];
+        }
+    }
+    return NULL;
+}
+
 // adb commands
 static const char *adb_exe =
 #ifdef _WIN32
@@ -152,12 +209,12 @@ AdbMgr::~AdbMgr() {
 #endif
 }
 
-bool AdbMgr::Reload(void) {
-    char buf[1024];
-    AdbDevice dev;
+void AdbMgr::DoReload(void) {
     process_t proc;
+    char buf[1024];
+
     if (disabled) // adb.exe was not found
-        return false;
+        return;
 #if 0
     const char *ro[] = {"reconnect", "offline"};
     proc = adb_execute(NULL, ro, ARRAY_LEN(ro), NULL, 0);
@@ -165,15 +222,14 @@ bool AdbMgr::Reload(void) {
         elog("adb r.o. failed");
     }
 #endif
+
     const char *dd[] = {"devices"};
     proc = adb_execute(NULL, dd, ARRAY_LEN(dd), buf, sizeof(buf));
     if (!process_check_success(proc, "adb devices")) {
-        return false;
+        return;
     }
 
-    ClearDeviceList();
-
-    size_t i = 0, len;
+    size_t len;
     char *n, *sep;
     char *p = strtok_r(buf, "\n", &n);
     do {
@@ -188,9 +244,6 @@ bool AdbMgr::Reload(void) {
             continue;
         }
 
-        memset(dev.serial, 0, sizeof(dev.serial));
-        memset(dev.state, 0, sizeof(dev.state));
-
         // eg. 00a3a5185d8ac3b1  device
         sep = strchr(p, ' ');
         if (!sep) {
@@ -199,9 +252,14 @@ bool AdbMgr::Reload(void) {
         }
         len = sep - p;
         if (len <= 0) continue;
-        if (len > (sizeof(dev.serial)-1)) len = sizeof(dev.serial)-1;
+        if (len > (sizeof(Device::serial)-1)) len = sizeof(Device::serial)-1;
         p[len] = 0;
-        memcpy(dev.serial, p, len);
+
+        Device *dev = AddDevice(p, len);
+        if (!dev) {
+            elog("error adding device, device list is full?");
+            break;
+        }
 
         p = sep + 1;
         while (*p != '\r' && *p != '\0' && (*p == ' ' || *p == '\t')) { p++; }
@@ -209,54 +267,29 @@ bool AdbMgr::Reload(void) {
         if (!sep) break;
         len = sep - p;
         if (len <= 0) continue;
-        if (len > (sizeof(dev.state)-1)) len = sizeof(dev.state)-1;
-        memcpy(dev.state, p, len);
+        if (len > (sizeof(Device::state)-1)) len = sizeof(Device::state)-1;
+        memcpy(dev->state, p, len);
 
-        deviceList[i] = new AdbDevice();
-        memcpy(deviceList[i]->serial, dev.serial, sizeof(dev.serial));
-        memcpy(deviceList[i]->state, dev.state, sizeof(dev.state));
-        memset(deviceList[i]->model, 0, sizeof(dev.model));
-        if (++i == DEVICES_LIMIT) break;
     } while ((p = strtok_r(NULL, "\n", &n)) != NULL);
-    return true;
+    return;
 }
 
-static void GetModel(AdbDevice *dev) {
+void AdbMgr::GetModel(Device *dev) {
     char buf[1024] = {0};
     process_t proc;
     const char *ro[] = {"shell", "getprop", "ro.product.model"};
     proc = adb_execute(dev->serial, ro, ARRAY_LEN(ro), buf, sizeof(buf));
     if (process_check_success(proc, "adb get model")) {
         char *p = buf;
-        char *end = buf + sizeof(dev->model) - 2;
+        char *end = buf + sizeof(Device::model) - 16;
         while (p < end && (isalnum(*p) || *p == ' ' || *p == '-' || *p == '_')) p++;
-        snprintf(dev->model, sizeof(dev->model), "%.*s (usb: %.*s)", (int) (p - buf), buf, (int) sizeof(dev->serial)/2, dev->serial);
+        snprintf(dev->model, sizeof(Device::model)-1, "%.*s [USB] (%.*s)",
+            (int) (p - buf), buf, (int) sizeof(dev->serial)/2, dev->serial);
         dlog("model: %s", dev->model);
     }
 }
 
-AdbDevice* AdbMgr::NextDevice(int *is_offline, int get_name) {
-    #define STATE_DEVICE "device"
-    const char* device = STATE_DEVICE;
-
-    if (iter < DEVICES_LIMIT && deviceList[iter])
-    {
-        ilog("device %s is %s", deviceList[iter]->serial, deviceList[iter]->state);
-        if (memcmp(device, deviceList[iter]->state, sizeof(STATE_DEVICE)-1) == 0) {
-            *is_offline = 0;
-        } else {
-            *is_offline = 1;
-        }
-
-        Device* dev = deviceList[iter++];
-        if (get_name && *is_offline == 0) GetModel(dev);
-        return dev;
-    }
-    return 0;
-}
-
-bool
-AdbMgr::AddForward(const char *serial, int local_port, int remote_port) {
+bool AdbMgr::AddForward(Device *dev, int local_port, int remote_port) {
     char local[32];
     char remote[32];
 
@@ -266,15 +299,17 @@ AdbMgr::AddForward(const char *serial, int local_port, int remote_port) {
     snprintf(local, 32, "tcp:%d", local_port);
     snprintf(remote, 32, "tcp:%d", remote_port);
 
+    const char *serial = dev->serial;
     const char *const cmd[] = {"forward", local, remote};
     process_t proc = adb_execute(serial, cmd, ARRAY_LEN(cmd), NULL, 0);
     return process_check_success(proc, "adb fwd");
 }
 
-void AdbMgr::ClearForwards(const char *serial) {
+void AdbMgr::ClearForwards(Device *dev) {
     if (disabled) // adb.exe was not found
         return;
 
+    const char *serial = dev->serial;
     const char *const cmd[] = {"forward", "--remove-all"};
     process_t proc = adb_execute(serial, cmd, ARRAY_LEN(cmd), NULL, 0);
     process_check_success(proc, "adb fwd clear");
@@ -348,15 +383,15 @@ USBMux::~USBMux() {
 #endif // __APPLE__
 }
 
-bool USBMux::Reload(void) {
+void USBMux::DoReload(void) {
 #ifdef __APPLE__
     deviceCount = 0;
-    return 0;
+    return;
 
 #else // _WIN32 || _Linux
     if (!hModule) {
         deviceCount = 0;
-        return 0;
+        return;
     }
 
     if (deviceList) usbmuxd_device_list_free(&deviceList);
@@ -365,9 +400,9 @@ bool USBMux::Reload(void) {
     if (deviceCount < 0) {
         elog("Could not get iOS device list, usbmuxd not running?");
         deviceCount = 0;
-        return 0;
+        return;
     }
-    return 1;
+    return;
 #endif // __APPLE__
 }
 

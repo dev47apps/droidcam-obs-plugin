@@ -16,14 +16,14 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include <stdio.h>
 
-#ifdef _WIN32
-# define snprintf sprintf_s
-#else
+#ifndef _WIN32
 # include <arpa/inet.h>
 # include <sys/errno.h>
 # include <sys/socket.h>
+# include <poll.h>
 # include <netdb.h>
 
+// for mdns.h
 # pragma GCC diagnostic ignored "-Wunused-function"
 #endif
 
@@ -31,16 +31,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "net.h"
 #include "device_discovery.h"
 #include "plugin.h"
-
-#define MDNS_STRING_LIMIT(s, l) while (0) { if (s.length >= l) s.length = l - 1; }
-
-MDNS::MDNS() {
-    sock = INVALID_SOCKET;
-    query_id = -1;
-}
-
-MDNS::~MDNS() {
-}
+#include "plugin_properties.h"
+#include <util/platform.h>
 
 // Callback handling parsing answers to queries sent
 static int
@@ -52,29 +44,10 @@ query_callback(int sock, const struct sockaddr* from, size_t addrlen, mdns_entry
     (void)sizeof(sock);
     (void)sizeof(query_id);
     (void)sizeof(name_length);
-    (void)sizeof(record_length);
     (void)sizeof(ttl);
 
     MDNS *mdnsMgr = (MDNS *)user_data;
-    char addrbuffer[INET6_ADDRSTRLEN] = {0};
-
-    Device dev;
-    mdns_string_t fromaddrstr;
-
-    if (from->sa_family == AF_INET) {
-        fromaddrstr.str = inet_ntop(AF_INET, &((const struct sockaddr_in*) from)->sin_addr, addrbuffer, (socklen_t)addrlen);
-    } else {
-        fromaddrstr.str = inet_ntop(AF_INET6, &((const struct sockaddr_in6*) from)->sin6_addr, addrbuffer, (socklen_t)addrlen);
-        elog("IPv6 is not supported");
-        return 0;
-    }
-
-    if (fromaddrstr.str) {
-        fromaddrstr.length = strnlen(fromaddrstr.str, sizeof(addrbuffer));
-    } else {
-        elog("mDNS: error parsing fromaddress: %s", strerror(errno));
-        return 0;
-    }
+    char entrybuffer[256];
 
 #ifdef DEBUG
     const char *entry_name, *record_name;
@@ -110,36 +83,50 @@ query_callback(int sock, const struct sockaddr* from, size_t addrlen, mdns_entry
     }
 #endif
 
+    void *in_addr;
+    char addrbuffer[INET6_ADDRSTRLEN] = {0};
+
+    switch (from->sa_family) {
+        case AF_INET: {
+            struct sockaddr_in* sa = (struct sockaddr_in*) from;
+            in_addr = &(sa->sin_addr);
+            break;
+        }
+        case AF_INET6: {
+            /*
+            struct sockaddr_in6* sa = (struct sockaddr_in6*) from;
+            in_addr = &(sa->sin6_addr);
+            break;*/
+            ilog("todo: ipv6 support");
+            return 0;
+        }
+    }
+
+    mdns_string_t fromaddrstr;
+    fromaddrstr.str = inet_ntop(from->sa_family, in_addr, addrbuffer, (socklen_t)addrlen);
+    if (fromaddrstr.str) {
+        fromaddrstr.length = strnlen(fromaddrstr.str, sizeof(addrbuffer));
+    } else {
+        elog("mDNS: error parsing fromaddress: %s", strerror(errno));
+        return 0;
+    }
+
     dlog("mDNS: reply from %.*s entry=%s record=%s", MDNS_STRING_FORMAT(fromaddrstr), entry_name, record_name);
 
     if (entry_type == MDNS_ENTRYTYPE_ANSWER) {
-        mdns_string_t record = mdns_record_parse_ptr(data, size, record_offset, record_length, dev.serial, sizeof(dev.serial)-1);
-        dlog("mDNS: ANSWER name=%.*s", MDNS_STRING_FORMAT(record));
+        mdns_string_t record = mdns_record_parse_ptr(data, size, record_offset, record_length, entrybuffer, sizeof(Device::serial)-1);
+        ilog("mDNS: ANSWER record=%.*s", MDNS_STRING_FORMAT(record));
 
-        if (fromaddrstr.length >= (sizeof(dev.address)-1)) {
-            elog("error: fromaddress size too large: %d", (int) fromaddrstr.length);
-            return 0;
+        Device *dev = mdnsMgr->AddDevice(MDNS_STRING_ARGS(record));
+        if (dev) {
+            ilog("added new device with serial '%.*s'", MDNS_STRING_FORMAT(record));
+            MDNS_STRING_LIMIT(fromaddrstr, sizeof(Device::address)-1);
+            memcpy(dev->model, MDNS_STRING_ARGS(fromaddrstr));
+            memcpy(dev->address, MDNS_STRING_ARGS(fromaddrstr));
+        } else {
+            elog("error adding device, device list is full?");
         }
 
-        for (ssize_t i = 0; i < DEVICES_LIMIT; i++) {
-            if (mdnsMgr->deviceList[i] == NULL) {
-                dlog("adding new device with serial '%.*s'", MDNS_STRING_FORMAT(record));
-                mdnsMgr->deviceList[i] = new Device();
-                memset(mdnsMgr->deviceList[i]->model, 0, sizeof(dev.model));
-                memset(mdnsMgr->deviceList[i]->serial, 0, sizeof(dev.serial));
-                memset(mdnsMgr->deviceList[i]->address, 0, sizeof(dev.address));
-
-                memcpy(mdnsMgr->deviceList[i]->serial, MDNS_STRING_ARGS(record));
-                memcpy(mdnsMgr->deviceList[i]->address, MDNS_STRING_ARGS(fromaddrstr));
-                break;
-            }
-            if (memcmp(mdnsMgr->deviceList[i]->serial, MDNS_STRING_ARGS(record)) == 0) {
-                dlog("updating address for '%.*s'", MDNS_STRING_FORMAT(record));
-                memset(mdnsMgr->deviceList[i]->address, 0, sizeof(dev.address));
-                memcpy(mdnsMgr->deviceList[i]->address, MDNS_STRING_ARGS(fromaddrstr));
-                break;
-            }
-        }
         return 0;
     }
 
@@ -148,18 +135,25 @@ query_callback(int sock, const struct sockaddr* from, size_t addrlen, mdns_entry
         return 0;
     }
 
+    mdns_string_t entry = mdns_string_extract(data, size, &name_offset, entrybuffer, sizeof(Device::serial)-1);
+    Device *dev = mdnsMgr->GetDevice(MDNS_STRING_ARGS(entry));
+    if (dev == NULL) {
+        ilog("device '%.*s' not found", MDNS_STRING_FORMAT(entry));
+        return 0;
+    }
+
     // ADDITIONAL section
     if (rtype == MDNS_RECORDTYPE_SRV) {
-        char entrybuffer[256];
-        mdns_record_srv_t srv = mdns_record_parse_srv(data, size, record_offset, record_length, entrybuffer, sizeof(entrybuffer));
-        dlog("mDNS: SRV %.*s port=%d", MDNS_STRING_FORMAT(srv.name), srv.port);
-        // not using the port from here...
+        char srvbuf[256];
+        mdns_record_srv_t srv = mdns_record_parse_srv(data, size, record_offset, record_length, srvbuf, sizeof(srvbuf));
+        (void) srv;
+        // dlog("mDNS: SRV %.*s port=%d", MDNS_STRING_FORMAT(srv.name), srv.port);
+        // Any way to also auto-discover port via USB (?) and remove the manual port input
         return 0;
     }
 
     if (rtype == MDNS_RECORDTYPE_TXT) {
         mdns_record_txt_t txtbuf[512];
-        mdns_string_t entry = mdns_string_extract(data, size, &name_offset, dev.serial, sizeof(dev.serial)-1);
         ssize_t parsed = mdns_record_parse_txt(data, size, record_offset, record_length, txtbuf, ARRAY_LEN(txtbuf));
 
         for (ssize_t t = 0; t < parsed; t++) {
@@ -171,98 +165,78 @@ query_callback(int sock, const struct sockaddr* from, size_t addrlen, mdns_entry
             dlog("mDNS: TXT %.*s = %.*s", MDNS_STRING_FORMAT(txtbuf[t].key), MDNS_STRING_FORMAT(txtbuf[t].value));
 
             // DroidCam TXT records
-            const char* key_model   = "model";
-            const char* key_address = "address";
+            const char* name = "name";
 
-            for (ssize_t i = 0; i < DEVICES_LIMIT; i++) {
-                if (mdnsMgr->deviceList[i] == NULL)
-                    break;
+            // name, aka device label. example result: 'Pixel 4a (WiFi)'
+            if (strncmp(name, MDNS_STRING_ARGS(txtbuf[t].key)) == 0) {
+                MDNS_STRING_LIMIT(txtbuf[t].value, sizeof(Device::model) - 26/* suffix */);
 
-                if (memcmp(mdnsMgr->deviceList[i]->serial, MDNS_STRING_ARGS(entry)) == 0) {
-                    if (strncmp(key_model, MDNS_STRING_ARGS(txtbuf[t].key)) == 0)
-                    {
-                        MDNS_STRING_LIMIT(txtbuf[t].value, sizeof(dev.model));
-                        dlog("using model='%.*s' for '%.*s'", MDNS_STRING_FORMAT(txtbuf[t].value), MDNS_STRING_FORMAT(entry));
-                        memset(mdnsMgr->deviceList[i]->model, 0, sizeof(dev.model));
-                        snprintf(mdnsMgr->deviceList[i]->model, sizeof(dev.model), "%.*s (WiFi)", MDNS_STRING_FORMAT(txtbuf[t].value));
-                    }
-                    else if (strncmp(key_address, MDNS_STRING_ARGS(txtbuf[t].key)) == 0)
-                    {
-                        MDNS_STRING_LIMIT(txtbuf[t].value, sizeof(dev.address));
-                        dlog("updating wifi address for '%.*s'", MDNS_STRING_FORMAT(entry));
-                        memset(mdnsMgr->deviceList[i]->address, 0, sizeof(dev.address));
-                        memcpy(mdnsMgr->deviceList[i]->address, MDNS_STRING_ARGS(txtbuf[t].value));
-                    }
-                    break;
-                }
+                ilog("using model='%.*s' for '%.*s'", MDNS_STRING_FORMAT(txtbuf[t].value), MDNS_STRING_FORMAT(entry));
+                snprintf(dev->model, sizeof(Device::model)-1, "%.*s [WIFI] (%.*s)",
+                    MDNS_STRING_FORMAT(txtbuf[t].value), MDNS_STRING_FORMAT(fromaddrstr));
             }
         }
+
+        return 0;
     }
+
+    // Use query_id to grab these instead of fromaddrstr for each device
+    /*if (rtype == MDNS_RECORDTYPE_A) {
+        struct sockaddr_in addr;
+        mdns_record_parse_a(data, size, record_offset, record_length, &addr);
+        return 0;
+    }
+
+    if (rtype == MDNS_RECORDTYPE_AAAA) {
+        struct sockaddr_in6 addr;
+        mdns_record_parse_aaaa(data, size, record_offset, record_length, &addr);
+        return 0;
+    }*/
 
     return 0;
 }
 
-void MDNS::FinishQuery(void) {
-    dlog("mDNS: reading replies for socket %d", sock);
-    struct timeval timeout;
-    timeout.tv_sec = 2;
-    timeout.tv_usec = 0;
-    do {
-        fd_set set;
-        FD_ZERO(&set);
-        FD_SET(sock, &set);
-
-        if (select(sock+1, &set, 0, 0, &timeout) <= 0)
-            break;
-
-       if (FD_ISSET(sock, &set)) {
-            void* user_data = this;
-            mdns_query_recv(sock, buffer, sizeof(buffer), query_callback, user_data, query_id);
-       }
-
-       FD_SET(sock, &set);
-    } while (1);
-}
-
-Device* MDNS::NextDevice(void) {
-    if (sock != INVALID_SOCKET) {
-        ClearDeviceList();
-        FinishQuery();
-        mdns_socket_close(sock);
-        sock = INVALID_SOCKET;
-    }
-
-    if (iter < DEVICES_LIMIT && deviceList[iter]) {
-        Device* dev = deviceList[iter++];
-        return dev;
-    }
-
-    return 0;
-}
-
-bool MDNS::Query(const char* service_name) {
+void MDNS::DoReload(void) {
+    const char* service_name = DROIDCAM_SERVICE_NAME;
     const char* record_name = "ANY";
     const mdns_record_type_t record = MDNS_RECORDTYPE_ANY;
+    size_t capacity = 2048;
+    void* buffer = malloc(capacity);
+    int query_id;
 
-    if (sock >= 0) {
-        mdns_socket_close(sock);
-    }
-
-    sock = mdns_socket_open_ipv4(0);
+    socket_t sock = mdns_socket_open_ipv4(0);
     if (sock < 0) {
         elog("socket(): %s", strerror(errno));
-        return 0;
+        goto ERROR_OUT;
     }
 
-    dlog("mDNS: got socket %d", sock);
-    dlog("mDNS: query %s %s\n", service_name, record_name);
-    query_id = mdns_query_send(sock, record, service_name, strlen(service_name), buffer, sizeof(buffer), 0);
+    ilog("mDNS: query %s %s via socket %d", service_name, record_name, sock);
+    query_id = mdns_query_send(sock, record, service_name, strlen(service_name), buffer, capacity, sock);
     if (query_id < 0) {
         elog("Failed to send mDNS query: %s\n", strerror(errno));
-        mdns_socket_close(sock);
-        sock = INVALID_SOCKET;
-        return 0;
+        goto ERROR_OUT;
     }
+    {
+        struct pollfd fd_set = { sock, POLLIN, 0 };
+        int timeout = 1200;
+        const int NS_MS_FACTOR = 1000000;
+        uint64_t time_end = timeout + (os_gettime_ns() / NS_MS_FACTOR);
+        do {
+            if (poll(&fd_set, 1, timeout) <= 0)
+                break;
 
-    return 1;
+            if (fd_set.revents & POLLIN) {
+                void* user_data = this;
+                mdns_query_recv(sock, buffer, capacity, query_callback, user_data, query_id);
+            }
+
+            timeout = (int)(time_end - (os_gettime_ns() / NS_MS_FACTOR));
+        } while (timeout > 0);
+    }
+ERROR_OUT:
+    free(buffer);
+    if (sock > 0)
+        mdns_socket_close(sock);
+
+    return;
 }

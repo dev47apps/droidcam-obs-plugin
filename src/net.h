@@ -9,6 +9,7 @@
   #define SHUT_RD SD_RECEIVE
   #define SHUT_WR SD_SEND
   #define SHUT_RDWR SD_BOTH
+  #define poll WSAPoll
   typedef SOCKET socket_t;
   typedef int ssize_t;
 #else

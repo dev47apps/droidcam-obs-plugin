@@ -1,5 +1,6 @@
 // Copyright (C) 2021 DEV47APPS, github.com/dev47apps
 #pragma once
+#include <util/threading.h>
 
 #define DEVICES_LIMIT 8
 
@@ -8,63 +9,83 @@ struct Device {
     char model[80];
     char state[32];
     char address[64];
-    Device(){}
+    Device(){
+        memset(state, 0, sizeof(state));
+        memset(model, 0, sizeof(model));
+        memset(serial, 0, sizeof(serial));
+        memset(address, 0, sizeof(address));
+    }
     ~Device(){}
 };
 
-struct DeviceDiscovery {
+class DeviceDiscovery {
+protected:
     int iter;
     Device* deviceList[DEVICES_LIMIT];
-    inline void ResetIter(void) {
-        iter = 0;
+    virtual void DoReload(void) = 0;
+
+private:
+    int rthr;
+    pthread_t pthr;
+    friend void *reload_thread(void *data);
+
+    inline void join(void) {
+        if (rthr) {
+            pthread_join(pthr, NULL);
+            rthr = 0;
+        }
     }
 
-    inline void ClearDeviceList() {
-        for (int i = 0; i < DEVICES_LIMIT; i++) {
-            if(deviceList[i]) delete deviceList[i];
-            deviceList[i] = NULL;
-        }
+public:
+    inline int Iter(void) { return iter; }
+    void ResetIter(void) {
+        join();
+        iter = 0;
     }
 
     DeviceDiscovery() {
         for (int i = 0; i < DEVICES_LIMIT; i++) {
             deviceList[i] = NULL;
         }
-        ResetIter();
+        iter = 0;
+        rthr = 0;
     };
 
-    ~DeviceDiscovery() {
-        ClearDeviceList();
+    virtual ~DeviceDiscovery() {
+        join();
+        Clear();
     };
+
+    void Reload(void);
+    void Clear(void);
+    Device* NextDevice(void);
+    Device* AddDevice(const char* serial, size_t length);
+    Device* GetDevice(const char* serial, size_t length = sizeof(Device::serial));
 };
 
 
 // MARK: WiFi MDNS
 struct MDNS : DeviceDiscovery {
-    int sock;
-    int query_id;
-    char buffer[2048];
-    MDNS();
-    ~MDNS();
-    bool Query(const char* service_name);
-    void FinishQuery(void);
-    Device* NextDevice(void);
+    MDNS(){}
+    ~MDNS(){}
+    void DoReload();
 };
 
 
 
 // MARK: Android USB
-typedef struct Device AdbDevice;
-
 struct AdbMgr : DeviceDiscovery {
     int disabled;
     AdbMgr();
     ~AdbMgr();
-    bool Reload(void);
+    void DoReload();
 
-    AdbDevice* NextDevice(int *is_offline, int get_name = 0);
-    bool AddForward(const char *serial, int local_port, int remote_port);
-    void ClearForwards(const char *serial);
+    bool AddForward(Device* dev, int local_port, int remote_port);
+    void ClearForwards(Device* dev);
+    void GetModel(Device* dev);
+    bool DeviceOffline(Device *dev) {
+        return memcmp(dev->state, "device", 6) != 0;
+    }
 };
 
 
@@ -91,7 +112,7 @@ struct USBMux : DeviceDiscovery {
 
     USBMux();
     ~USBMux();
-    bool Reload(void);
+    void DoReload();
     iOSDevice* NextDevice(void);
     int Connect(int device_id, int port);
 };

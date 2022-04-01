@@ -39,6 +39,7 @@ extern "C" {
 #define MDNS_STRING_CONST(s) (s), (sizeof((s)) - 1)
 #define MDNS_STRING_ARGS(s) s.str, s.length
 #define MDNS_STRING_FORMAT(s) (int)((s).length), s.str
+#define MDNS_STRING_LIMIT(s, l) do { if ((s).length >= (l)) (s).length = (l); } while (0)
 
 #define MDNS_POINTER_OFFSET(p, ofs) ((void*)((char*)(p) + (ptrdiff_t)(ofs)))
 #define MDNS_POINTER_OFFSET_CONST(p, ofs) ((const void*)((const char*)(p) + (ptrdiff_t)(ofs)))

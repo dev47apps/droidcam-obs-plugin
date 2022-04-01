@@ -37,7 +37,7 @@ ifeq ($(UNAME),Linux)
 	LDD_LIBS += -lusbmuxd
 	LDD_FLAG += -shared
 
-run:
+run: debug
 	rm ~/.config/obs-studio/logs/* && obs
 ## LINUX ##
 endif
@@ -71,7 +71,7 @@ LDD_LIBS += -lavcodec.58 -lavformat.58 -lavutil.56
 LDD_LIBS += -lturbojpeg
 LDD_FLAG += -bundle
 
-run:
+run: debug
 	rm ~/Library/ApplicationSupport/obs-studio/logs/* && /Applications/OBS.app/Contents/MacOS/OBS
 endif
 
