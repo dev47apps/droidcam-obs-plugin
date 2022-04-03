@@ -883,6 +883,7 @@ static obs_properties_t *plugin_properties(void *data) {
         obs_property_set_description(cp, TEXT_DEACTIVATE);
     }
 
+    obs_data_release(settings);
     return ppts;
 }
 
