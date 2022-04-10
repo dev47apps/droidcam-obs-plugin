@@ -79,13 +79,13 @@ $(LIB_DLL): $(SRC)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(LDD_DIRS) $(LDD_LIBS) $(LDD_FLAG) $^ $(STATIC) -o $@
 
 clean:
-	$(RM) $(BUILD_DIR)/*.o $(BUILD_DIR)/*.so
-	$(RM) test adbz
+	$(RM) $(BUILD_DIR)/*.o $(BUILD_DIR)/*.so $(BUILD_DIR)/*.exe
 
 adbz:
-	$(CXX) $(CXXFLAGS) -o adbz src/test/adbz.c
+	$(CXX) $(CXXFLAGS) -o$(BUILD_DIR)/adbz.exe src/test/adbz.c
 
 test: adbz
-	$(CXX) $(CXXFLAGS) -DDEBUG -DTEST -otest -Isrc/ -Isrc/test/ \
+	$(CXX) $(CXXFLAGS) -o$(BUILD_DIR)/test.exe -DDEBUG -DTEST -Isrc/test/ $(INCLUDES) \
 		src/net.c src/command.c src/sys/unix/cmd.c \
 		src/test/main.c
+	$(BUILD_DIR)/test.exe

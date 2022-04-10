@@ -18,8 +18,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifdef __linux__
+#ifndef _WIN32
 #include <dlfcn.h>
+#include <assert.h>
 #endif
 
 #include "net.h"
@@ -143,6 +144,10 @@ Device* DeviceDiscovery::AddDevice(const char* serial, size_t length) {
 
 // adb commands
 static const char *adb_exe =
+#ifdef TEST
+    "build" PATH_SEPARATOR "adbz.exe";
+#else // --
+
 #ifdef _WIN32
     PLUGIN_DATA_DIR "\\adb\\adb.exe";
 #else
@@ -151,6 +156,7 @@ static const char *adb_exe =
     #else
     "adb";
     #endif
+#endif
 #endif
 
 process_t
@@ -233,8 +239,11 @@ void AdbMgr::DoReload(void) {
     char *n, *sep;
     char *p = strtok_r(buf, "\n", &n);
     do {
-        dlog("adb: %s", p);
-        if (p[0] == ' ' || p[0] == 0) {
+        dlog("adb> %s", p);
+        if (p[0] == 0) {
+            break;
+        }
+        if (p[0] == '\r' || p[0] == '\n' || p[0] == ' ') {
             continue;
         }
         if (strstr(p, "* daemon") != NULL) {
@@ -245,6 +254,8 @@ void AdbMgr::DoReload(void) {
         }
 
         // eg. 00a3a5185d8ac3b1  device
+
+        // Serial
         sep = strchr(p, ' ');
         if (!sep) {
             sep = strchr(p, '\t');
@@ -261,10 +272,13 @@ void AdbMgr::DoReload(void) {
             break;
         }
 
+        // whitespace
         p = sep + 1;
-        while (*p != '\r' && *p != '\0' && (*p == ' ' || *p == '\t')) { p++; }
-        sep = strchr(p, '\0');
-        if (!sep) break;
+        while ((*p == ' ' || *p == '\t') && *p != '\r' && *p != '\n' && *p != '\0') { p++; }
+
+        // state (offline | bootloader | device)
+        sep = p;
+        while (isalpha(*sep)){ sep++; }
         len = sep - p;
         if (len <= 0) continue;
         if (len > (sizeof(Device::state)-1)) len = sizeof(Device::state)-1;
@@ -283,8 +297,8 @@ void AdbMgr::GetModel(Device *dev) {
         char *p = buf;
         char *end = buf + sizeof(Device::model) - 16;
         while (p < end && (isalnum(*p) || *p == ' ' || *p == '-' || *p == '_')) p++;
-        snprintf(dev->model, sizeof(Device::model)-1, "%.*s [USB] (%.*s)",
-            (int) (p - buf), buf, (int) sizeof(dev->serial)/2, dev->serial);
+        snprintf(dev->model, sizeof(Device::model), "%.*s [USB] (%.*s)",
+            (int) (p - buf), buf, (int) sizeof(Device::serial)/2, dev->serial);
         dlog("model: %s", dev->model);
     }
 }

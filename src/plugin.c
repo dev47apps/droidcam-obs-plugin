@@ -587,6 +587,7 @@ static void plugin_destroy(void *data) {
         if (plugin->iosMgr) delete plugin->iosMgr;
         if (plugin->mdnsMgr) delete plugin->mdnsMgr;
         delete plugin;
+        ilog("complete");
     }
 }
 

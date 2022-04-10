@@ -172,7 +172,7 @@ query_callback(int sock, const struct sockaddr* from, size_t addrlen, mdns_entry
                 MDNS_STRING_LIMIT(txtbuf[t].value, sizeof(Device::model) - 26/* suffix */);
 
                 ilog("using model='%.*s' for '%.*s'", MDNS_STRING_FORMAT(txtbuf[t].value), MDNS_STRING_FORMAT(entry));
-                snprintf(dev->model, sizeof(Device::model)-1, "%.*s [WIFI] (%.*s)",
+                snprintf(dev->model, sizeof(Device::model), "%.*s [WIFI] (%.*s)",
                     MDNS_STRING_FORMAT(txtbuf[t].value), MDNS_STRING_FORMAT(fromaddrstr));
             }
         }

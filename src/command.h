@@ -11,7 +11,6 @@
 # include <windows.h>
 
 # define strtok_r strtok_s
-# define snprintf sprintf_s
 # define PATH_SEPARATOR "\\"
 # define PLUGIN_DATA_DIR "..\\..\\data\\obs-plugins\\droidcam-obs"
 # define PRIexitcode "lu"

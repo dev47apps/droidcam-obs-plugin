@@ -54,17 +54,16 @@ cmd_execute(const char *path, const char *const argv[], HANDLE *handle, char* ou
     si.hStdOutput = hChildStd_OUT_Wr;
     si.dwFlags |= STARTF_USESTDHANDLES;
 
-
     char cmd[256];
-    if (argv_to_string(argv, cmd, sizeof(cmd))) {
-        return PROCESS_ERROR_GENERIC;
-    }
+    argv_to_string(argv, cmd, sizeof(cmd));
 
     dlog("exec %s", cmd);
     if (!CreateProcessA(NULL, cmd, NULL, NULL, TRUE, flags, NULL, NULL, &si, &pi)) {
-        if (GetLastError() == ERROR_FILE_NOT_FOUND) {
+        int error = GetLastError();
+        if (error == ERROR_FILE_NOT_FOUND) {
             return PROCESS_ERROR_MISSING_BINARY;
         }
+        elog("CreateProcess() error: %d", error);
         return PROCESS_ERROR_GENERIC;
     }
 
