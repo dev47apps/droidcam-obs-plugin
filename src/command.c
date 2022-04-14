@@ -363,6 +363,10 @@ USBMux::USBMux() {
 
 #ifdef __linux__
     hModule = dlopen("libusbmuxd.so", RTLD_LAZY | RTLD_GLOBAL);
+
+    if (!hModule)
+        hModule = dlopen("libusbmuxd-2.0.so", RTLD_LAZY | RTLD_GLOBAL);
+
     if (!hModule) {
         elog("%s", errmsg);
         return;
@@ -412,7 +416,7 @@ void USBMux::DoReload(void) {
     deviceCount = usbmuxd_get_device_list(&deviceList);
     ilog("USBMux: found %d devices", deviceCount);
     if (deviceCount < 0) {
-        elog("Could not get iOS device list, usbmuxd not running?");
+        elog("Could not get iOS device list, is usbmuxd running?");
         deviceCount = 0;
         return;
     }
@@ -449,6 +453,9 @@ int USBMux::Connect(int device, int port) {
             elog("usbmuxd_connect failed: %d", rc);
             goto out;
         }
+
+        set_nonblock(rc, 0);
+        set_recv_timeout(rc, 5);
         return rc;
     }
 out:

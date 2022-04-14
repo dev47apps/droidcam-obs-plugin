@@ -19,6 +19,7 @@
 
 bool net_init(void);
 void net_cleanup(void);
+bool net_close(socket_t sock);
 
 socket_t
 net_connect(struct addrinfo *addr, uint16_t port);
@@ -41,5 +42,8 @@ net_send(socket_t sock, const void *buf, size_t len);
 ssize_t
 net_send_all(socket_t sock, const void *buf, size_t len);
 
+int
+set_recv_timeout(socket_t sock, int tv_sec);
+
 bool
-net_close(socket_t sock);
+set_nonblock(socket_t sock, int nonblock);

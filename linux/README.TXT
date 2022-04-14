@@ -19,6 +19,3 @@ For iOS USB support, make sure usbmuxd is installed and running:
 Debian/Ubuntu Linux users can do: sudo apt-get install usbmuxd
 ARCH Linux users can do: sudo pacman -S usbmuxd
 Fedora/SUSE based Linux users can do: sudo yum install usbmuxd
-
-=========================
-Copyright 2021, DEV47APPS

@@ -34,7 +34,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 # include <unistd.h>
 #endif
 
-static bool set_nonblock(socket_t sock, int nonblock) {
+bool set_nonblock(socket_t sock, int nonblock) {
 #ifdef _WIN32
     u_long nb = nonblock;
     return (NO_ERROR == ioctlsocket(sock, FIONBIO, &nb));
@@ -60,7 +60,7 @@ static bool set_nonblock(socket_t sock, int nonblock) {
 }
 
 // https://stackoverflow.com/a/2939145
-static int set_recv_timeout(socket_t sock, int tv_sec) {
+int set_recv_timeout(socket_t sock, int tv_sec) {
 #if _WIN32
     DWORD timeout = tv_sec * 1000;
 #else

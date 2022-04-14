@@ -773,7 +773,7 @@ found_device:
     obs_data_set_int(settings, OPT_ACTIVE_DEV_TYPE, (long long) device_info->type);
     obs_data_set_bool(settings, OPT_IS_ACTIVATED, true);
     plugin->activated = true;
-    ilog("activated: id=%s type=%d ip=%s port=%d", device_info->id, device_info->type, device_info->ip, device_info->port);
+    ilog("activated: id=%s type=%d ip=%s port=%d", device_info->id, (int)device_info->type, device_info->ip, device_info->port);
     ilog("video_format=%d/%s video_resolution=%d/%s",
         plugin->video_format, VideoFormatNames[plugin->video_format][1],
         plugin->video_resolution, Resolutions[plugin->video_resolution]);
