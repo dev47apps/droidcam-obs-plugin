@@ -25,33 +25,43 @@ debug: CXXFLAGS += -DDEBUG
 debug: all
 
 UNAME := $(shell uname -s)
-ifeq ($(UNAME),Linux)
-## LINUX ##
-	JPEG_DIR ?= /opt/libjpeg-turbo
-	JPEG_LIB ?= $(JPEG_DIR)/lib$(shell getconf LONG_BIT)
 
-	STATIC   += $(JPEG_LIB)/libturbojpeg.a
-	INCLUDES += -I$(JPEG_DIR)/include
-	INCLUDES += -I/usr/include/obs
-	LDD_LIBS += -lobs
-	LDD_LIBS += -lusbmuxd
-	LDD_FLAG += -shared
+# Linux
+ifeq ($(UNAME),Linux)
+
+# Variables with ?= can be overridden
+# Example: `JPEG_LIB=/usr/lib/aarch64-linux-gnu make`
+
+JPEG_DIR ?= /opt/libjpeg-turbo
+JPEG_LIB ?= $(JPEG_DIR)/lib$(shell getconf LONG_BIT)
+
+STATIC   += $(JPEG_LIB)/libturbojpeg.a
+
+INCLUDES += -I$(JPEG_DIR)/include
+INCLUDES += -I/usr/include/obs
+
+LDD_LIBS += -lobs
+LDD_LIBS += -lusbmuxd
+LDD_FLAG += -shared
 
 run: debug
 	rm ~/.config/obs-studio/logs/* && obs
-## LINUX ##
 endif
 
-ifeq ($(UNAME),Darwin)
+
 # macOS
+ifeq ($(UNAME),Darwin)
+
 # Variables with ?= can be overridden
 # Example: `OBS_DIR=/tmp/obs-26.0 ARCH=arm64 make `
 
-QT_DIR     ?= /usr/local/opt/qt5
-FFMPEG_DIR ?= /usr/local/opt/ffmpeg
-JPEG_DIR   ?= /usr/local/opt/libjpeg-turbo
-OBS_DIR    ?= ../obs-studio-25.0.8
 ARCH       ?= x86_64
+DEPS_DIR   ?= ../obs-deps
+OBS_DIR    ?= ../obs-studio-25.0.8
+FFMPEG_DIR ?= $(DEPS_DIR)
+QT_DIR     ?= /usr/local/opt/qt5
+JPEG_DIR   ?= /usr/local/opt/libjpeg-turbo
+
 
 CXXFLAGS += -dead_strip
 CXXFLAGS += -target $(ARCH)-apple-darwin
@@ -63,7 +73,9 @@ INCLUDES += -I$(JPEG_DIR)/include
 INCLUDES += -I$(FFMPEG_DIR)/include
 INCLUDES += -I$(OBS_DIR)/UI -I$(OBS_DIR)/libobs
 
+LDD_DIRS += -L$(DEPS_DIR)/lib
 LDD_DIRS += -L$(JPEG_DIR)/lib
+LDD_DIRS += -L$(FFMPEG_DIR)/lib
 LDD_DIRS += -L/Applications/OBS.app/Contents/Frameworks
 
 LDD_LIBS += -lobs.0
@@ -74,6 +86,7 @@ LDD_FLAG += -bundle
 run: debug
 	rm ~/Library/ApplicationSupport/obs-studio/logs/* && /Applications/OBS.app/Contents/MacOS/OBS
 endif
+
 
 $(LIB_DLL): $(SRC)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(LDD_DIRS) $(LDD_LIBS) $(LDD_FLAG) $^ $(STATIC) -o $@

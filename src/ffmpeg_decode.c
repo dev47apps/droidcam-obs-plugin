@@ -157,8 +157,6 @@ int FFMpegDecoder::init(uint8_t* header, enum AVCodecID id, bool use_hw)
 	if (!packet)
 		return -1;
 
-	av_init_packet(packet);
-
 	ready = true;
 	return 0;
 }
