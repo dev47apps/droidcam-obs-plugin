@@ -9,7 +9,9 @@ struct Device {
     char model[80];
     char state[32];
     char address[64];
+    uint32_t handle;
     Device(){
+        handle = 0;
         memset(state, 0, sizeof(state));
         memset(model, 0, sizeof(model));
         memset(serial, 0, sizeof(serial));
@@ -21,6 +23,7 @@ struct Device {
 class DeviceDiscovery {
 protected:
     int iter;
+    const char* suffix = "";
     Device* deviceList[DEVICES_LIMIT];
     virtual void DoReload(void) = 0;
 
@@ -66,7 +69,11 @@ public:
 
 // MARK: WiFi MDNS
 struct MDNS : DeviceDiscovery {
-    MDNS(){}
+    const char* suffix = "WIFI";
+    int network_mask;
+    MDNS(){
+        network_mask = 0;
+    }
     ~MDNS(){}
     void DoReload();
 };
@@ -75,6 +82,7 @@ struct MDNS : DeviceDiscovery {
 
 // MARK: Android USB
 struct AdbMgr : DeviceDiscovery {
+    const char* suffix = "USB";
     int disabled;
     AdbMgr();
     ~AdbMgr();
@@ -92,10 +100,8 @@ struct AdbMgr : DeviceDiscovery {
 
 // MARK: Apple USB
 #include "usbmuxd.h"
-typedef usbmuxd_device_info_t iOSDevice;
-
 struct USBMux : DeviceDiscovery {
-    usbmuxd_device_info_t *deviceList;
+    usbmuxd_device_info_t *usbmuxd_device_list;
 
 #ifdef _WIN32
     libusbmuxd_set_debug_level_t usbmuxd_set_debug_level;
@@ -108,11 +114,14 @@ struct USBMux : DeviceDiscovery {
 #else
     void* hModule;
 #endif
-    int deviceCount;
+
+#ifdef __APPLE__
+    MDNS  *mdns;
+#endif
 
     USBMux();
     ~USBMux();
     void DoReload();
-    iOSDevice* NextDevice(void);
-    int Connect(int device_id, int port);
+    void GetModel(Device* dev);
+    int Connect(Device* dev, int port);
 };

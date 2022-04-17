@@ -26,6 +26,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 // for mdns.h
 # pragma GCC diagnostic ignored "-Wunused-function"
 #endif
+#ifdef __APPLE__
+#include <ifaddrs.h>
+#endif
 
 #include "mdns.h"
 #include "net.h"
@@ -169,11 +172,11 @@ query_callback(int sock, const struct sockaddr* from, size_t addrlen, mdns_entry
 
             // name, aka device label. example result: 'Pixel 4a (WiFi)'
             if (strncmp(name, MDNS_STRING_ARGS(txtbuf[t].key)) == 0) {
-                MDNS_STRING_LIMIT(txtbuf[t].value, sizeof(Device::model) - 26/* suffix */);
+                MDNS_STRING_LIMIT(txtbuf[t].value, sizeof(Device::model) - strlen(mdnsMgr->suffix) - 6 - 16);
 
                 ilog("using model='%.*s' for '%.*s'", MDNS_STRING_FORMAT(txtbuf[t].value), MDNS_STRING_FORMAT(entry));
-                snprintf(dev->model, sizeof(Device::model), "%.*s [WIFI] (%.*s)",
-                    MDNS_STRING_FORMAT(txtbuf[t].value), MDNS_STRING_FORMAT(fromaddrstr));
+                snprintf(dev->model, sizeof(Device::model), "%.*s [%s] (%.*s)",
+                    MDNS_STRING_FORMAT(txtbuf[t].value), mdnsMgr->suffix, MDNS_STRING_FORMAT(fromaddrstr));
             }
         }
 
@@ -196,6 +199,31 @@ query_callback(int sock, const struct sockaddr* from, size_t addrlen, mdns_entry
     return 0;
 }
 
+static
+int find_sockaddr(int network_mask) {
+#ifdef __APPLE__
+    struct ifaddrs* ifaddr = 0;
+    struct ifaddrs* ifa = 0;
+
+    if (getifaddrs(&ifaddr) < 0)
+        return INVALID_SOCKET;
+
+    for (ifa = ifaddr; ifa; ifa = ifa->ifa_next) {
+        if (!ifa->ifa_addr)
+            continue;
+        if (ifa->ifa_addr->sa_family == AF_INET) {
+            struct sockaddr_in* saddr = (struct sockaddr_in*)ifa->ifa_addr;
+            if ((saddr->sin_addr.s_addr & 0xffff) == network_mask) {
+                dlog("found ifaddr: %x (mask %x)", saddr->sin_addr.s_addr, network_mask);
+                return mdns_socket_open_ipv4(saddr);
+            }
+        }
+    }
+#endif
+    return INVALID_SOCKET;
+}
+
+
 void MDNS::DoReload(void) {
     const char* service_name = DROIDCAM_SERVICE_NAME;
     const char* record_name = "ANY";
@@ -204,7 +232,9 @@ void MDNS::DoReload(void) {
     void* buffer = malloc(capacity);
     int query_id;
 
-    socket_t sock = mdns_socket_open_ipv4(0);
+    socket_t sock = (network_mask != 0) ?
+        find_sockaddr(network_mask) : mdns_socket_open_ipv4(NULL);
+
     if (sock < 0) {
         elog("socket(): %s", strerror(errno));
         goto ERROR_OUT;

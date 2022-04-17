@@ -85,8 +85,6 @@ process_print_error(enum process_result err, const char *const argv[]) {
     }
 }
 
-// todo: command.c -> device_discovery.c
-
 void *reload_thread(void *data) {
     ((DeviceDiscovery*) data) -> Clear();
     ((DeviceDiscovery*) data) -> DoReload();
@@ -295,10 +293,10 @@ void AdbMgr::GetModel(Device *dev) {
     proc = adb_execute(dev->serial, ro, ARRAY_LEN(ro), buf, sizeof(buf));
     if (process_check_success(proc, "adb get model")) {
         char *p = buf;
-        char *end = buf + sizeof(Device::model) - 16;
+        char *end = buf + sizeof(Device::model) - strlen(suffix) - 6 - 8;
         while (p < end && (isalnum(*p) || *p == ' ' || *p == '-' || *p == '_')) p++;
-        snprintf(dev->model, sizeof(Device::model), "%.*s [USB] (%.*s)",
-            (int) (p - buf), buf, (int) sizeof(Device::serial)/2, dev->serial);
+        snprintf(dev->model, sizeof(Device::model), "%.*s [%s] (%.*s)",
+            (int) (p - buf), buf, suffix, (int) sizeof(Device::serial)/2, dev->serial);
         dlog("model: %s", dev->model);
     }
 }
@@ -334,8 +332,8 @@ void AdbMgr::ClearForwards(Device *dev) {
 
 USBMux::USBMux() {
     const char *errmsg = "Error loading usbmuxd dll, iOS USB support n/a";
-    deviceList = NULL;
     hModule = NULL;
+    usbmuxd_device_list = NULL;
 
 #ifdef _WIN32
     const char *usbmuxd_dll = PLUGIN_DATA_DIR PATH_SEPARATOR "usbmuxd.dll";
@@ -378,87 +376,168 @@ USBMux::USBMux() {
 
 #ifdef __APPLE__
     (void) errmsg;
+    /*
+     * The "correct" approach is to use usbmuxd just like Windows and Linux.
+     * However, the macOS + iOS tether interface provides a very easy and an
+     * ultra-fast usb connection option.
+     * Using usbmuxd is less desirable as (a) it adds an extra hop and extra bloat,
+     * (b) universal libraries would need to be packaged and distributed.
+     * On the other hand, leveraging mdns to locate and connect iOS devices is a bit
+     * of a 'hack' - but it works (arguably better) with no additional dependencies.
+     */
+    mdns = new MDNS();
+    mdns->suffix = "USB";
+    mdns->network_mask = 0xfea9; // 169.254/16
     return;
 #endif
 }
 
 USBMux::~USBMux() {
 #ifdef __APPLE__
-    return;
+    delete mdns;
 
-#else // Not __APPLE__
+#else
 
-    if (deviceList) usbmuxd_device_list_free(&deviceList);
+    if (usbmuxd_device_list) {
+        usbmuxd_device_list_free(&usbmuxd_device_list);
+    }
 
+    if (hModule) {
 #ifdef _WIN32
-    if (hModule) FreeLibrary(hModule);
+        FreeLibrary(hModule);
 #endif
-
 #ifdef __linux__
-    if (hModule) dlclose(hModule);
+        dlclose(hModule);
 #endif
+    }
 
+
+#endif // __APPLE__
+}
+
+void USBMux::GetModel(Device* dev) {
+#ifdef __APPLE__
+    return;
+#else
+#if 0
+    // TODO
+    idevice_t device = NULL;
+    char *udid = dev->serial;
+    if (idevice_new_with_options(&device, udid, IDEVICE_LOOKUP_USBMUX) != IDEVICE_E_SUCCESS) {
+        elog("Unable to get idevice_t for %s", udid)
+        return;
+    }
+
+    lockdownd_client_t lockdown = NULL;
+    lockdownd_error_t lerr = lockdownd_client_new_with_handshake(device, &lockdown, TOOL_NAME);
+    if (lerr != LOCKDOWN_E_SUCCESS) {
+        idevice_free(device);
+        elog("Could not connect to lockdownd, error code %d\n", lerr);
+        return;
+    }
+
+    char* name = NULL;
+    lerr = lockdownd_get_device_name(lockdown, &name);
+    if (name) {
+        // snprintf(dev->model, sizeof(Device::model), "%.*s [%s] (%.*s)",
+        // ...)
+        free(name);
+    }
+    else {
+        elog("Could not get device name, lockdown error %d\n", lerr);
+    }
+    lockdownd_client_free(lockdown);
+    idevice_free(device);
+#endif
 #endif // __APPLE__
 }
 
 void USBMux::DoReload(void) {
 #ifdef __APPLE__
-    deviceCount = 0;
+    reload_thread(mdns);
+
+    int i = 0;
+    Device *idev;
+    mdns->ResetIter();
+    while ((idev = mdns->NextDevice()) != NULL) {
+        // Edit the serial to avoid clashes with the same device
+        // being available over the default (wifi) interface
+        const char* text = "_usb";
+        const size_t max = sizeof(Device::serial) - strlen(text) - 2;
+        idev->serial[max] = 0;
+        strcat(idev->serial, text);
+
+        // Add device to the local (USBMux) list
+        Device *dev = AddDevice(idev->serial, sizeof(Device::serial));
+        if (!dev) {
+            elog("error adding device, device list is full?");
+            break;
+        }
+
+        memcpy(dev->model, idev->model, sizeof(Device::model));
+        memcpy(dev->address, idev->address, sizeof(Device::address));
+        dev->handle = 147000 + i++;
+    }
+
+    ilog("Apple USB: found %d devices", i);
     return;
 
 #else // _WIN32 || _Linux
-    if (!hModule) {
-        deviceCount = 0;
+    if (!hModule)
+        return;
+
+    if (usbmuxd_device_list)
+        usbmuxd_device_list_free(&usbmuxd_device_list);
+
+    int deviceCount = usbmuxd_get_device_list(&usbmuxd_device_list);
+    ilog("USBMux: found %d devices", deviceCount);
+
+    if (deviceCount < 0) {
+        elog("Could not get iOS device list, is usbmuxd running?");
         return;
     }
 
-    if (deviceList) usbmuxd_device_list_free(&deviceList);
-    deviceCount = usbmuxd_get_device_list(&deviceList);
-    ilog("USBMux: found %d devices", deviceCount);
-    if (deviceCount < 0) {
-        elog("Could not get iOS device list, is usbmuxd running?");
-        deviceCount = 0;
-        return;
+    for (int i = 0; i < deviceCount; i++) {
+        usbmuxd_device_info_t *idev = &usbmuxd_device_list[i];
+        if (idev == NULL || idev->handle == 0) {
+            continue;
+        }
+
+        assert(sizeof(usbmuxd_device_info_t::udid) < sizeof(Device::serial));
+        Device *dev = AddDevice(idev->udid, sizeof(usbmuxd_device_info_t::udid));
+        if (!dev) {
+            elog("error adding device, device list is full?");
+            break;
+        }
+
+        dev->handle = idev->handle;
     }
-    return;
+
 #endif // __APPLE__
 }
 
-usbmuxd_device_info_t* USBMux::NextDevice(void) {
-    usbmuxd_device_info_t* device;
-    if (iter < deviceCount) {
-        device = &deviceList[iter++];
-        if (device && device->handle)
-            return device;
-    }
-    return 0;
-}
+int USBMux::Connect(Device* dev, int port) {
+    dlog("USBMUX Connect: handle=%d, port=%d", dev->handle, port);
 
-int USBMux::Connect(int device, int port) {
 #ifdef __APPLE__
-    return INVALID_SOCKET;
-#else
+    return net_connect(dev->address, port);
 
-    int rc;
-    dlog("USBMUX Connect: dev=%d (of %d), port=%d", device, deviceCount, port);
+#else
 
     if (!hModule) {
         elog("USBMUX dll not loaded");
-        goto out;
+        return INVALID_SOCKET;
     }
 
-    if (device < deviceCount) {
-        rc = usbmuxd_connect(deviceList[device].handle, (short) port);
-        if (rc <= 0) {
-            elog("usbmuxd_connect failed: %d", rc);
-            goto out;
-        }
-
-        set_nonblock(rc, 0);
-        set_recv_timeout(rc, 5);
-        return rc;
+    int rc = usbmuxd_connect(dev->handle, (short) port);
+    if (rc <= 0) {
+        elog("usbmuxd_connect failed: %d", rc);
+        return INVALID_SOCKET;
     }
-out:
-    return INVALID_SOCKET;
+
+    set_nonblock(rc, 0);
+    set_recv_timeout(rc, 5);
+    return rc;
+
 #endif // __APPLE__
 }

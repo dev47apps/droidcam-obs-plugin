@@ -29,7 +29,6 @@
 #define TEXT_USE_HW_ACCEL   obs_module_text("AllowHWAccel")
 
 #define PING_REQ "GET /ping"
-// TODO test against current live apps (ios + android)
 #define AUDIO_REQ "GET /v1/audio.2"
 #define VIDEO_REQ "GET /v4/video/%s/%s/port/%d/client/%s/nonce/%d/"
 

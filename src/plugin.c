@@ -95,7 +95,6 @@ struct droidcam_obs_plugin {
 
 static socket_t connect(struct droidcam_obs_plugin *plugin) {
     Device* dev;
-    iOSDevice* iosdevice;
     AdbMgr* adbMgr = plugin->adbMgr;
     USBMux* iosMgr = plugin->iosMgr;
     MDNS  *mdnsMgr = plugin->mdnsMgr;
@@ -155,14 +154,10 @@ static socket_t connect(struct droidcam_obs_plugin *plugin) {
         goto out;
     }
 
-    // TODO ios GetDevice
     if (device_info->type == DeviceType::IOS) {
-        iosMgr->ResetIter();
-        while ((iosdevice = iosMgr->NextDevice()) != NULL) {
-            dlog("checking against serial:%s\n", iosdevice->udid);
-            if (strncmp(device_info->id, iosdevice->udid, sizeof(iosdevice->udid)) == 0) {
-                return iosMgr->Connect(iosMgr->Iter() - 1, device_info->port);
-            }
+        dev = iosMgr->GetDevice(device_info->id);
+        if (dev) {
+            return iosMgr->Connect(dev, device_info->port);
         }
 
         iosMgr->Reload();
@@ -687,7 +682,6 @@ static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
     droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
 
     Device* dev;
-    iOSDevice* iosdevice;
     AdbMgr* adbMgr = plugin->adbMgr;
     USBMux* iosMgr = plugin->iosMgr;
     MDNS  *mdnsMgr = plugin->mdnsMgr;
@@ -748,20 +742,14 @@ static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
         goto found_device;
     }
 
-    // TODO ios GetDevice
-    iosMgr->ResetIter();
-    while ((iosdevice = iosMgr->NextDevice()) != NULL) {
-        dlog("IOS: serial:%s\n", iosdevice->udid);
-        if (strncmp(device_info->id, iosdevice->udid, sizeof(iosdevice->udid)) == 0) {
-            device_info->type = DeviceType::IOS;
-            goto found_device;
-        }
+    dev = iosMgr->GetDevice(device_info->id);
+    if (dev) {
+        device_info->type = DeviceType::IOS;
+        goto found_device;
     }
 
-    if (device_info->type == DeviceType::NONE) {
-        elog("unable to determine devce type, refresh device list and try again");
-        goto out;
-    }
+    elog("unable to determine devce type, refresh device list and try again");
+    goto out;
 
 found_device:
     obs_property_set_description(cp, TEXT_DEACTIVATE);
@@ -788,7 +776,6 @@ out:
 static bool refresh_clicked(obs_properties_t *ppts, obs_property_t *p, void *data) {
     droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
     Device* dev;
-    iOSDevice* iosdevice;
     AdbMgr *adbMgr = plugin->adbMgr;
     USBMux* iosMgr = plugin->iosMgr;
     MDNS  *mdnsMgr = plugin->mdnsMgr;
@@ -814,9 +801,11 @@ static bool refresh_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
     }
 
     iosMgr->ResetIter();
-    while ((iosdevice = iosMgr->NextDevice()) != NULL) {
-        dlog("IOS: handle:%d serial:%s", iosdevice->handle, iosdevice->udid);
-        obs_property_list_add_string(p, iosdevice->udid, iosdevice->udid);
+    while ((dev = iosMgr->NextDevice()) != NULL) {
+        iosMgr->GetModel(dev);
+        char *label = dev->model[0] != 0 ? dev->model : dev->serial;
+        dlog("IOS: handle:%d label:%s serial:%s", dev->handle, label, dev->serial);
+        obs_property_list_add_string(p, label, dev->serial);
     }
 
     mdnsMgr->ResetIter();
@@ -872,7 +861,6 @@ static obs_properties_t *plugin_properties(void *data) {
     cp = obs_properties_get(ppts, OPT_DEVICE_LIST);
     {
         Device* dev;
-        iOSDevice* iosdevice;
         AdbMgr *adbMgr = plugin->adbMgr;
         USBMux* iosMgr = plugin->iosMgr;
         MDNS  *mdnsMgr = plugin->mdnsMgr;
@@ -886,8 +874,9 @@ static obs_properties_t *plugin_properties(void *data) {
         }
 
         iosMgr->ResetIter();
-        while ((iosdevice = iosMgr->NextDevice()) != NULL) {
-            obs_property_list_add_string(cp, iosdevice->udid, iosdevice->udid);
+        while ((dev = iosMgr->NextDevice()) != NULL) {
+            char *label = dev->model[0] != 0 ? dev->model : dev->serial;
+            obs_property_list_add_string(cp, label, dev->serial);
         }
 
         mdnsMgr->ResetIter();
