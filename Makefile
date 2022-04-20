@@ -30,18 +30,37 @@ UNAME := $(shell uname -s)
 ifeq ($(UNAME),Linux)
 
 # Variables with ?= can be overridden
-# Example: `JPEG_LIB=/usr/lib/aarch64-linux-gnu make`
+# Example: `JPEG_LIB=/usr/lib/aarch64-linux-gnu  ALLOW_STATIC=no  make `
 
+# Allow static linking some deps
+ALLOW_STATIC ?= yes
+
+# libimobiledevice
+IMOBILEDEV_DIR ?= /opt/libimobiledevice
+
+# libjpeg-turbo
 JPEG_DIR ?= /opt/libjpeg-turbo
 JPEG_LIB ?= $(JPEG_DIR)/lib$(shell getconf LONG_BIT)
 
-STATIC   += $(JPEG_LIB)/libturbojpeg.a
+ifeq "$(ALLOW_STATIC)" "yes"
+	STATIC += $(JPEG_LIB)/libturbojpeg.a
+	STATIC += $(IMOBILEDEV_DIR)/lib/libimobiledevice.a
+	STATIC += $(IMOBILEDEV_DIR)/lib/libusbmuxd.a
+	STATIC += $(IMOBILEDEV_DIR)/lib/libplist-2.0.a
 
+else
+	LDD_DIRS += -L$(JPEG_LIB)
+	LDD_DIRS += -L$(IMOBILEDEV_DIR)/lib
+
+	LDD_LIBS += -lturbojpeg
+	LDD_LIBS += -limobiledevice
+endif
+
+INCLUDES += -I$(IMOBILEDEV_DIR)/include
 INCLUDES += -I$(JPEG_DIR)/include
 INCLUDES += -I/usr/include/obs
 
 LDD_LIBS += -lobs
-LDD_LIBS += -lusbmuxd
 LDD_FLAG += -shared
 
 run: debug

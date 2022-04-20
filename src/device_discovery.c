@@ -26,6 +26,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "net.h"
 #include "command.h"
 #include "device_discovery.h"
+#ifndef __APPLE__
+#include <libimobiledevice/lockdown.h>
+#endif
 
 bool process_check_success(process_t proc, const char *name) {
     if (proc == PROCESS_NONE) {
@@ -360,15 +363,6 @@ USBMux::USBMux() {
 #endif
 
 #ifdef __linux__
-    hModule = dlopen("libusbmuxd.so", RTLD_LAZY | RTLD_GLOBAL);
-
-    if (!hModule)
-        hModule = dlopen("libusbmuxd-2.0.so", RTLD_LAZY | RTLD_GLOBAL);
-
-    if (!hModule) {
-        elog("%s", errmsg);
-        return;
-    }
     #ifdef DEBUG
     libusbmuxd_set_debug_level(9);
     #endif
@@ -396,51 +390,46 @@ USBMux::~USBMux() {
 #ifdef __APPLE__
     delete mdns;
 
-#else
+#else // _WIN32 || _Linux
 
     if (usbmuxd_device_list) {
         usbmuxd_device_list_free(&usbmuxd_device_list);
     }
 
-    if (hModule) {
 #ifdef _WIN32
+    if (hModule) {
         FreeLibrary(hModule);
-#endif
-#ifdef __linux__
-        dlclose(hModule);
-#endif
     }
-
-
+#endif
 #endif // __APPLE__
 }
 
 void USBMux::GetModel(Device* dev) {
 #ifdef __APPLE__
     return;
-#else
-#if 0
-    // TODO
+
+#else // _WIN32 || _Linux
     idevice_t device = NULL;
     char *udid = dev->serial;
-    if (idevice_new_with_options(&device, udid, IDEVICE_LOOKUP_USBMUX) != IDEVICE_E_SUCCESS) {
-        elog("Unable to get idevice_t for %s", udid)
+    if (idevice_new(&device, udid) != IDEVICE_E_SUCCESS) {
+        elog("Unable to get idevice_t for %s", udid);
         return;
     }
 
     lockdownd_client_t lockdown = NULL;
-    lockdownd_error_t lerr = lockdownd_client_new_with_handshake(device, &lockdown, TOOL_NAME);
+    lockdownd_error_t lerr = lockdownd_client_new(device, &lockdown, "droidcam-obs-plugin");
     if (lerr != LOCKDOWN_E_SUCCESS) {
         idevice_free(device);
-        elog("Could not connect to lockdownd, error code %d\n", lerr);
+        elog("Could not connect lockdown, error code %d\n", lerr);
         return;
     }
 
     char* name = NULL;
     lerr = lockdownd_get_device_name(lockdown, &name);
     if (name) {
-        // snprintf(dev->model, sizeof(Device::model), "%.*s [%s] (%.*s)",
-        // ...)
+        int max = (int)(sizeof(Device::model) - strlen(suffix) - 6 - 8);
+        snprintf(dev->model, sizeof(Device::model), "%.*s [%s] (%.*s)",
+            max, name, suffix, (int) sizeof(Device::serial)/2, dev->serial);
         free(name);
     }
     else {
@@ -448,7 +437,6 @@ void USBMux::GetModel(Device* dev) {
     }
     lockdownd_client_free(lockdown);
     idevice_free(device);
-#endif
 #endif // __APPLE__
 }
 
@@ -483,8 +471,10 @@ void USBMux::DoReload(void) {
     return;
 
 #else // _WIN32 || _Linux
+    #ifdef _WIN32
     if (!hModule)
         return;
+    #endif
 
     if (usbmuxd_device_list)
         usbmuxd_device_list_free(&usbmuxd_device_list);
@@ -524,10 +514,12 @@ int USBMux::Connect(Device* dev, int port) {
 
 #else
 
+    #ifdef _WIN32
     if (!hModule) {
         elog("USBMUX dll not loaded");
         return INVALID_SOCKET;
     }
+    #endif
 
     int rc = usbmuxd_connect(dev->handle, (short) port);
     if (rc <= 0) {
