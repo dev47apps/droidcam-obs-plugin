@@ -9,7 +9,7 @@ struct Device {
     char model[80];
     char state[32];
     char address[64];
-    uint32_t handle;
+    int handle;
     Device(){
         handle = 0;
         memset(state, 0, sizeof(state));
@@ -99,24 +99,40 @@ struct AdbMgr : DeviceDiscovery {
 
 
 // MARK: Apple USB
-#include "usbmuxd.h"
+#ifndef __APPLE__
+#include <usbmuxd.h>
+#include <libimobiledevice/lockdown.h>
+#endif
+
 struct USBMux : DeviceDiscovery {
-    usbmuxd_device_info_t *usbmuxd_device_list;
+    const char* suffix = "USB";
 
 #ifdef _WIN32
+    idevice_new_t  idevice_new;
+    idevice_free_t  idevice_free;
+
+    lockdownd_client_new_t       lockdownd_client_new;
+    lockdownd_client_free_t      lockdownd_client_free;
+    lockdownd_get_device_name_t  lockdownd_get_device_name;
+
     libusbmuxd_set_debug_level_t usbmuxd_set_debug_level;
     usbmuxd_get_device_list_t    usbmuxd_get_device_list;
     usbmuxd_device_list_free_t   usbmuxd_device_list_free;
     usbmuxd_connect_t            usbmuxd_connect;
     usbmuxd_disconnect_t         usbmuxd_disconnect;
 
-    HMODULE hModule;
+    HMODULE hModuleIDevice;
+    HMODULE hModuleUsbmux;
 #else
-    void* hModule;
+    void* hModuleIDevice;
+    void* hModuleUsbmux;
 #endif
 
 #ifdef __APPLE__
-    MDNS  *mdns;
+    MDNS* mdns;
+    void* usbmuxd_device_list;
+#else
+    usbmuxd_device_info_t* usbmuxd_device_list;
 #endif
 
     USBMux();

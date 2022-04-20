@@ -220,6 +220,7 @@ int find_sockaddr(int network_mask) {
         }
     }
 #endif
+    errno = ENXIO;
     return INVALID_SOCKET;
 }
 

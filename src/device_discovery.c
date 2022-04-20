@@ -26,9 +26,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "net.h"
 #include "command.h"
 #include "device_discovery.h"
-#ifndef __APPLE__
-#include <libimobiledevice/lockdown.h>
-#endif
 
 bool process_check_success(process_t proc, const char *name) {
     if (proc == PROCESS_NONE) {
@@ -334,42 +331,73 @@ void AdbMgr::ClearForwards(Device *dev) {
 // MARK: USBMUX
 
 USBMux::USBMux() {
-    const char *errmsg = "Error loading usbmuxd dll, iOS USB support n/a";
-    hModule = NULL;
+    hModuleUsbmux = NULL;
+    hModuleIDevice = NULL;
     usbmuxd_device_list = NULL;
 
 #ifdef _WIN32
-    const char *usbmuxd_dll = PLUGIN_DATA_DIR PATH_SEPARATOR "usbmuxd.dll";
+    const char *idevice_dll  = PLUGIN_DATA_DIR PATH_SEPARATOR "imobiledevice.dll";
+    const char *usbmuxd_dll  = PLUGIN_DATA_DIR PATH_SEPARATOR "usbmuxd.dll";
+
     if (!FileExists(usbmuxd_dll)) {
         elog("iOS USB support not available");
         return;
     }
 
+    const char *errmsg = "Error loading dll, iOS USB support n/a";
     SetDllDirectory(PLUGIN_DATA_DIR);
-    hModule = LoadLibrary(usbmuxd_dll);
-    if (!hModule) {
-        elog("%s", errmsg);
+
+    hModuleIDevice = LoadLibrary(idevice_dll);
+    if (!hModuleIDevice) {
+        elog("%s (idevice_dll)", errmsg);
         return;
     }
 
-    usbmuxd_set_debug_level  = (libusbmuxd_set_debug_level_t) GetProcAddress(hModule, "libusbmuxd_set_debug_level");
-    usbmuxd_get_device_list  = (usbmuxd_get_device_list_t   ) GetProcAddress(hModule, "usbmuxd_get_device_list");
-    usbmuxd_device_list_free = (usbmuxd_device_list_free_t  ) GetProcAddress(hModule, "usbmuxd_device_list_free");
-    usbmuxd_connect          = (usbmuxd_connect_t           ) GetProcAddress(hModule, "usbmuxd_connect");
-    usbmuxd_disconnect       = (usbmuxd_disconnect_t        ) GetProcAddress(hModule, "usbmuxd_disconnect");
+    hModuleUsbmux = LoadLibrary(usbmuxd_dll);
+    if (!hModuleUsbmux) {
+        elog("%s (usbmuxd_dll", errmsg);
+        return;
+    }
+
+    idevice_new  = (idevice_new_t ) GetProcAddress(hModuleIDevice, "idevice_new");
+    idevice_free = (idevice_free_t) GetProcAddress(hModuleIDevice, "idevice_free");
+
+    lockdownd_client_new      = (lockdownd_client_new_t     ) GetProcAddress(hModuleIDevice, "lockdownd_client_new");
+    lockdownd_client_free     = (lockdownd_client_free_t    ) GetProcAddress(hModuleIDevice, "lockdownd_client_free");
+    lockdownd_get_device_name = (lockdownd_get_device_name_t) GetProcAddress(hModuleIDevice, "lockdownd_get_device_name");
+
+    usbmuxd_set_debug_level  = (libusbmuxd_set_debug_level_t) GetProcAddress(hModuleUsbmux, "libusbmuxd_set_debug_level");
+    usbmuxd_get_device_list  = (usbmuxd_get_device_list_t   ) GetProcAddress(hModuleUsbmux, "usbmuxd_get_device_list");
+    usbmuxd_device_list_free = (usbmuxd_device_list_free_t  ) GetProcAddress(hModuleUsbmux, "usbmuxd_device_list_free");
+    usbmuxd_connect          = (usbmuxd_connect_t           ) GetProcAddress(hModuleUsbmux, "usbmuxd_connect");
+    usbmuxd_disconnect       = (usbmuxd_disconnect_t        ) GetProcAddress(hModuleUsbmux, "usbmuxd_disconnect");
+
     #ifdef DEBUG
     usbmuxd_set_debug_level(9);
     #endif
 #endif
 
 #ifdef __linux__
+    // Check for usbmuxd presence
+    hModuleUsbmux = dlopen("libusbmuxd.so", RTLD_LAZY);
+
+    if (!hModuleUsbmux)
+        hModuleUsbmux = dlopen("libusbmuxd.so.4", RTLD_LAZY);
+
+    if (!hModuleUsbmux)
+        hModuleUsbmux = dlopen("libusbmuxd-2.0.so", RTLD_LAZY);
+
+    if (!hModuleUsbmux) {
+        elog("usbmuxd not found, iOS USB support not available");
+        return;
+    }
+
     #ifdef DEBUG
     libusbmuxd_set_debug_level(9);
     #endif
 #endif
 
 #ifdef __APPLE__
-    (void) errmsg;
     /*
      * The "correct" approach is to use usbmuxd just like Windows and Linux.
      * However, the macOS + iOS tether interface provides a very easy and an
@@ -377,7 +405,7 @@ USBMux::USBMux() {
      * Using usbmuxd is less desirable as (a) it adds an extra hop and extra bloat,
      * (b) universal libraries would need to be packaged and distributed.
      * On the other hand, leveraging mdns to locate and connect iOS devices is a bit
-     * of a 'hack' - but it works (arguably better) with no additional dependencies.
+     * of a hack, but it works (arguably better) with no additional dependencies.
      */
     mdns = new MDNS();
     mdns->suffix = "USB";
@@ -397,10 +425,18 @@ USBMux::~USBMux() {
     }
 
 #ifdef _WIN32
-    if (hModule) {
-        FreeLibrary(hModule);
-    }
+    if (hModuleIDevice)
+        FreeLibrary(hModuleIDevice);
+
+    if (hModuleUsbmux)
+        FreeLibrary(hModuleUsbmux);
 #endif
+
+#ifdef __linux__
+    if (hModuleUsbmux)
+        dlclose(hModuleUsbmux);
+#endif
+
 #endif // __APPLE__
 }
 
@@ -409,6 +445,9 @@ void USBMux::GetModel(Device* dev) {
     return;
 
 #else // _WIN32 || _Linux
+    if (!hModuleUsbmux)
+        return;
+
     idevice_t device = NULL;
     char *udid = dev->serial;
     if (idevice_new(&device, udid) != IDEVICE_E_SUCCESS) {
@@ -464,17 +503,14 @@ void USBMux::DoReload(void) {
 
         memcpy(dev->model, idev->model, sizeof(Device::model));
         memcpy(dev->address, idev->address, sizeof(Device::address));
-        dev->handle = 147000 + i++;
     }
 
     ilog("Apple USB: found %d devices", i);
     return;
 
 #else // _WIN32 || _Linux
-    #ifdef _WIN32
-    if (!hModule)
+    if (!hModuleUsbmux)
         return;
-    #endif
 
     if (usbmuxd_device_list)
         usbmuxd_device_list_free(&usbmuxd_device_list);
@@ -500,7 +536,7 @@ void USBMux::DoReload(void) {
             break;
         }
 
-        dev->handle = idev->handle;
+        dev->handle = (int) idev->handle;
     }
 
 #endif // __APPLE__
@@ -513,15 +549,10 @@ int USBMux::Connect(Device* dev, int port) {
     return net_connect(dev->address, port);
 
 #else
-
-    #ifdef _WIN32
-    if (!hModule) {
-        elog("USBMUX dll not loaded");
+    if (!hModuleUsbmux)
         return INVALID_SOCKET;
-    }
-    #endif
 
-    int rc = usbmuxd_connect(dev->handle, (short) port);
+    int rc = usbmuxd_connect((uint32_t) dev->handle, (short) port);
     if (rc <= 0) {
         elog("usbmuxd_connect failed: %d", rc);
         return INVALID_SOCKET;
