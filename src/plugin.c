@@ -26,7 +26,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "buffer_util.h"
 #include "device_discovery.h"
 
-#define VERSION_TEXT "140"
+#define VERSION_TEXT "150"
 #define FPS 25
 #define MILLI_SEC 1000
 #define NANO_SEC  1000000000
@@ -294,7 +294,7 @@ recv_video_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
     if (!decoder) {
         bool init = false;
         bool use_hw = plugin->use_hw;
-        ilog("create video decoder");
+        dlog("create video decoder");
 
         if (plugin->video_format == FORMAT_AVC) {
             decoder = new FFMpegDecoder();
@@ -350,7 +350,7 @@ static void *video_thread(void *data) {
                 }
 
                 plugin->video_running = false;
-                ilog("closing failed video socket %d", sock);
+                dlog("closing failed video socket %d", sock);
                 net_close(sock);
                 sock = INVALID_SOCKET;
                 goto SLOW_LOOP;
@@ -379,7 +379,7 @@ SLOW_LOOP:
             }
 
             plugin->video_running = true;
-            ilog("starting video via socket %d", sock);
+            dlog("starting video via socket %d", sock);
             continue;
         }
 
@@ -391,7 +391,7 @@ SLOW_LOOP:
 
 LOOP:
         if (sock != INVALID_SOCKET) {
-            ilog("closing active video socket %d", sock);
+            dlog("closing active video socket %d", sock);
             net_close(sock);
             sock = INVALID_SOCKET;
         }
@@ -406,7 +406,7 @@ LOOP:
                 os_sleep_ms(MILLI_SEC);
             }
 
-            ilog("release video_decoder");
+            dlog("release video_decoder");
             delete plugin->video_decoder;
             plugin->video_decoder = NULL;
         }
@@ -425,7 +425,7 @@ static bool
 do_audio_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
     FFMpegDecoder *decoder = (FFMpegDecoder*)plugin->audio_decoder;
     if (!decoder) {
-        ilog("create audio decoder");
+        dlog("create audio decoder");
         decoder = new FFMpegDecoder();
         plugin->audio_decoder = decoder;
     }
@@ -501,7 +501,7 @@ static void *audio_thread(void *data) {
                 }
 
                 plugin->audio_running = false;
-                ilog("closing failed audio socket %d", sock);
+                dlog("closing failed audio socket %d", sock);
                 net_close(sock);
                 sock = INVALID_SOCKET;
                 goto SLOW_LOOP;
@@ -528,7 +528,7 @@ SLOW_LOOP:
             }
 
             plugin->audio_running = true;
-            ilog("starting audio via socket %d", sock);
+            dlog("starting audio via socket %d", sock);
             continue;
         }
 
@@ -539,13 +539,13 @@ SLOW_LOOP:
 
 LOOP:
         if (sock != INVALID_SOCKET) {
-            ilog("closing active audio socket %d", sock);
+            dlog("closing active audio socket %d", sock);
             net_close(sock);
             sock = INVALID_SOCKET;
         }
 
         if (plugin->audio_decoder) {
-            ilog("release audio_decoder");
+            dlog("release audio_decoder");
             delete plugin->audio_decoder;
             plugin->audio_decoder = NULL;
         }
@@ -698,6 +698,7 @@ static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
         toggle_ppts(ppts, true);
         obs_data_set_bool(settings, OPT_IS_ACTIVATED, false);
         obs_property_set_description(cp, TEXT_CONNECT);
+        ilog("deactivate");
         goto out;
     }
 
@@ -847,7 +848,7 @@ static obs_properties_t *plugin_properties(void *data) {
     obs_properties_t *ppts = obs_properties_create();
     obs_property_t *cp;
     bool activated = obs_data_get_bool(settings, OPT_IS_ACTIVATED);
-    ilog("plugin_properties: activated=%d (actual=%d)", plugin->activated, activated);
+    dlog("plugin_properties: activated=%d (actual=%d)", plugin->activated, activated);
 
     cp = obs_properties_add_list(ppts, OPT_RESOLUTION, TEXT_RESOLUTION, OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
     for (size_t i = 0; i < ARRAY_LEN(Resolutions); i++)

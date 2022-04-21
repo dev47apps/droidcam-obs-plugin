@@ -68,7 +68,7 @@ static void init_hw_decoder(FFMpegDecoder *d)
 	AVBufferRef *hw_ctx = NULL;
 
 	while (*hw_device_iter != AV_HWDEVICE_TYPE_NONE) {
-		ilog("trying hw device %d", *hw_device_iter);
+		dlog("trying hw device %d", *hw_device_iter);
 		d->hw_pix_fmt = has_hw_type(d->codec, *hw_device_iter);
 		if (d->hw_pix_fmt != AV_PIX_FMT_NONE) {
 			if (av_hwdevice_ctx_create(&hw_ctx, *hw_device_iter, NULL, NULL, 0) == 0)
