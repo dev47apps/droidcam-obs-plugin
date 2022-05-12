@@ -26,7 +26,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "buffer_util.h"
 #include "device_discovery.h"
 
-#define VERSION_TEXT "150"
+#define VERSION_TEXT "151"
 #define FPS 25
 #define MILLI_SEC 1000
 #define NANO_SEC  1000000000
@@ -212,6 +212,7 @@ AGAIN:
             return NULL;
         }
 
+        ilog("have config: %ld", len);
         config_len = len;
         *has_config = 1;
         goto AGAIN;
@@ -438,7 +439,7 @@ do_audio_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
 
     // NOTE: All paths must do something with data_packet from here
 
-    if (has_config) {
+    if (has_config || !decoder->ready) {
         if (decoder->ready) {
             ilog("unexpected audio config change while decoder is init'd");
             decoder->failed = true;

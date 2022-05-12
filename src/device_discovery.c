@@ -187,11 +187,15 @@ adb_execute(const char *serial, const char *const adb_cmd[], size_t len, char *o
 }
 
 AdbMgr::AdbMgr() {
+    process_t proc;
+
 #if defined(_WIN32) || defined(__APPLE__)
    if (!FileExists(adb_exe)) {
 
-#else
-    if (system("adb version > /dev/null 2>&1")) {
+#else // Linux
+    const char *version[] = {"version"};
+    proc = adb_execute(NULL, version, ARRAY_LEN(version), NULL, 0);
+    if (!process_check_success(proc, "adb version")) {
         ilog("PATH=%s", getenv("PATH"));
 
 #endif
@@ -202,7 +206,7 @@ AdbMgr::AdbMgr() {
     disabled = 0;
 
     const char *ss[] = {"start-server"};
-    process_t proc = adb_execute(NULL, ss, ARRAY_LEN(ss), NULL, 0);
+    proc = adb_execute(NULL, ss, ARRAY_LEN(ss), NULL, 0);
     process_check_success(proc, "adb start-server");
 }
 
