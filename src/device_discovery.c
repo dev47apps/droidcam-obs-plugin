@@ -160,19 +160,24 @@ static const char *adb_exe =
 process_t
 adb_execute(const char *serial, const char *const adb_cmd[], size_t len, char *output, size_t out_size) {
     const char *cmd[32];
-    int i;
+    int i = 0;
     process_t process;
-    if (len > sizeof(cmd)-4) {
+    if (len > sizeof(cmd)-6) {
         elog("max 32 command args allowed");
         return PROCESS_NONE;
     }
-    cmd[0] = adb_exe;
+
+    #ifdef __linux__
+    if (FileExists("/.flatpak-info")) {
+        cmd[i++] = "flatpak-spawn";
+        cmd[i++] = "--host";
+    }
+    #endif
+
+    cmd[i++] = adb_exe;
     if (serial) {
-        cmd[1] = "-s";
-        cmd[2] = serial;
-        i = 3;
-    } else {
-        i = 1;
+        cmd[i++] = "-s";
+        cmd[i++] = serial;
     }
 
     memcpy(&cmd[i], adb_cmd, len * sizeof(const char *));
