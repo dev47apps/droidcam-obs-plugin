@@ -253,7 +253,7 @@ static void *video_decode_thread(void *data) {
 
     while (PLUGIN_RUNNING()) {
         if ((decoder = plugin->video_decoder) == NULL || (data_packet = decoder->pull_ready_packet()) == NULL) {
-            os_sleep_ms(2);
+            os_sleep_ms(5);
             continue;
         }
 
@@ -955,13 +955,3 @@ bool obs_module_load(void) {
     obs_register_source(&droidcam_obs_info);
     return true;
 }
-/*
-void obs_module_unload(void) {
-    if (libvlc) libvlc_release_(libvlc);
-#ifdef __APPLE__
-    if (libvlc_core_module) os_dlclose(libvlc_core_module);
-#endif
-    if (libvlc_module) os_dlclose(libvlc_module);
-}
-*/
-
