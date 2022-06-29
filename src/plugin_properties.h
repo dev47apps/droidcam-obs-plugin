@@ -15,6 +15,7 @@
 #define OPT_DEVICE_ID_WIFI    "dev_id_wifi"
 #define OPT_ACTIVE_DEV_ID     "cur_dev_id"
 #define OPT_ACTIVE_DEV_TYPE   "cur_dev_type"
+#define OPT_DUMMY_SOURCE      "dummy_source"
 
 #define TEXT_DEVICE         obs_module_text("Device")
 #define TEXT_REFRESH        obs_module_text("Refresh")
@@ -35,3 +36,47 @@
 #define ADB_LOCALHOST_IP "127.0.0.1"
 
 #define DROIDCAM_SERVICE_NAME "_droidcamobs._tcp.local."
+
+enum class DeviceType {
+    NONE,
+    WIFI,
+    ADB,
+    IOS,
+    MDNS,
+};
+
+struct active_device_info {
+    DeviceType type;
+    int port;
+    const char *id;
+    const char *ip;
+};
+
+
+enum VideoFormat {
+    FORMAT_AVC,
+    FORMAT_MJPG,
+};
+
+static const char* opt_use_wifi = OPT_DEVICE_ID_WIFI;
+
+static const char* VideoFormatNames[][2] = {
+    {"AVC/H.264", "avc"},
+    {"MJPEG", "jpg"},
+};
+
+static const char* Resolutions[] = {
+    "640x480",
+    "960x720",
+    "1280x720",
+    "1920x1080",
+};
+
+static inline int getResolutionIndex(const char* resolution) {
+    for (size_t i = 0; i < ARRAY_LEN(Resolutions); i++) {
+        if (memcmp(Resolutions[i], resolution, strlen(Resolutions[i])-1) == 0)
+            return i;
+    }
+
+    return 0;
+}

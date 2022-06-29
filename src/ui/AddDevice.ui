@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>332</width>
-    <height>407</height>
+    <width>400</width>
+    <height>404</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -16,42 +16,37 @@
   <widget class="QWidget" name="verticalLayoutWidget">
    <property name="geometry">
     <rect>
-     <x>10</x>
-     <y>30</y>
-     <width>315</width>
-     <height>330</height>
+     <x>9</x>
+     <y>10</y>
+     <width>381</width>
+     <height>361</height>
     </rect>
    </property>
    <layout class="QVBoxLayout" name="verticalLayout">
     <item>
-     <widget class="QLabel" name="add_device_label">
-      <property name="sizePolicy">
-       <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
-        <horstretch>0</horstretch>
-        <verstretch>0</verstretch>
-       </sizepolicy>
-      </property>
-      <property name="font">
-       <font>
-        <pointsize>14</pointsize>
-       </font>
-      </property>
+     <widget class="QLabel" name="addDevice_label">
       <property name="text">
-       <string>Add a device</string>
+       <string>AddADevice</string>
+      </property>
+      <property name="textInteractionFlags">
+       <set>Qt::NoTextInteraction</set>
       </property>
      </widget>
     </item>
     <item>
-     <widget class="QLabel" name="add_device_hint_label">
+     <widget class="QLabel" name="label">
       <property name="text">
-       <string>Make sure DroidCam app is open and your device is discoverable</string>
+       <string>DeviceDiscoveryHint</string>
+      </property>
+      <property name="wordWrap">
+       <bool>true</bool>
       </property>
      </widget>
     </item>
     <item>
-     <widget class="QListWidget" name="device_list_widget">
-      <property name="frameShape">
-       <enum>QFrame::NoFrame</enum>
+     <widget class="QListWidget" name="deviceList_widget">
+      <property name="focusPolicy">
+       <enum>Qt::TabFocus</enum>
       </property>
       <property name="editTriggers">
        <set>QAbstractItemView::NoEditTriggers</set>
@@ -59,34 +54,87 @@
       <property name="showDropIndicator" stdset="0">
        <bool>false</bool>
       </property>
+      <property name="selectionMode">
+       <enum>QAbstractItemView::SingleSelection</enum>
+      </property>
      </widget>
+    </item>
+    <item>
+     <layout class="QHBoxLayout" name="horizontalLayout1">
+      <item>
+       <widget class="QCheckBox" name="enableAudio_checkBox">
+        <property name="cursor">
+         <cursorShape>WhatsThisCursor</cursorShape>
+        </property>
+        <property name="focusPolicy">
+         <enum>Qt::NoFocus</enum>
+        </property>
+        <property name="toolTip">
+         <string>EnableAudioHint</string>
+        </property>
+        <property name="whatsThis">
+         <string>EnableAudioHint</string>
+        </property>
+        <property name="text">
+         <string>EnableAudio</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="refresh_button">
+        <property name="focusPolicy">
+         <enum>Qt::NoFocus</enum>
+        </property>
+        <property name="text">
+         <string>Refresh</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </item>
+    <item>
+     <layout class="QHBoxLayout" name="horizontalLayout2">
+      <item>
+       <widget class="QPushButton" name="addDevice_button">
+        <property name="focusPolicy">
+         <enum>Qt::NoFocus</enum>
+        </property>
+        <property name="text">
+         <string>AddDevice</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <spacer name="horizontalSpacer">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>40</width>
+          <height>20</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+     </layout>
     </item>
    </layout>
   </widget>
-  <widget class="QLabel" name="loading_label">
+  <widget class="QLabel" name="nil_label">
    <property name="geometry">
     <rect>
-     <x>0</x>
-     <y>0</y>
-     <width>331</width>
-     <height>16</height>
+     <x>20</x>
+     <y>380</y>
+     <width>47</width>
+     <height>13</height>
     </rect>
-   </property>
-   <property name="sizePolicy">
-    <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-     <horstretch>0</horstretch>
-     <verstretch>0</verstretch>
-    </sizepolicy>
    </property>
    <property name="text">
     <string/>
    </property>
-   <property name="alignment">
-    <set>Qt::AlignHCenter|Qt::AlignTop</set>
-   </property>
   </widget>
  </widget>
- <layoutdefault spacing="6" margin="11"/>
  <resources/>
  <connections/>
 </ui>
