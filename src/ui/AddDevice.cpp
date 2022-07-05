@@ -24,6 +24,7 @@ AddDevice::AddDevice(QWidget *parent) : QDialog(parent),
     loadingSvg.renderer()->setAspectRatioMode(Qt::KeepAspectRatio);
     loadingSvg.renderer()->blockSignals(true);
     loadingSvg.setVisible(false);
+    phoneIcon.addFile(PHONE_ICON, QSize(96, 96));
 
     ui->setupUi(this);
     Qt::WindowFlags flags = windowFlags();
@@ -33,7 +34,6 @@ AddDevice::AddDevice(QWidget *parent) : QDialog(parent),
     retainSize(ui->refresh_button);
     retainSize(ui->addDevice_button);
 
-    phoneIcon.addFile(PHONE_ICON, QSize(96, 96));
     ui->addDevice_label->setStyleSheet("font-size: 14pt;");
     ui->addDevice_button->setVisible(false);
     ui->refresh_button->setVisible(false);
@@ -43,13 +43,11 @@ AddDevice::AddDevice(QWidget *parent) : QDialog(parent),
     ui->enableAudio_checkBox->connect(ui->enableAudio_checkBox,
         &QCheckBox::stateChanged, [=] (int state) {
             enable_audio = state == Qt::Checked;
-            dlog("enable_audio=%d", enable_audio);
         });
 
     ui->deviceList_widget->connect(ui->deviceList_widget,
         &QListWidget::itemSelectionChanged, [=]() {
             int active = ui->deviceList_widget->currentRow();
-            dlog("active: %d", active);
             ui->addDevice_button->setVisible(active >= 0);
         });
 
@@ -66,7 +64,7 @@ AddDevice::AddDevice(QWidget *parent) : QDialog(parent),
 
     connect(ui->refresh_button, SIGNAL(clicked()), this, SLOT(ReloadList()));
 
-    const char *name = "dummy_discovery_source";
+    const char *name = "dummy_droidcam_source";
     dummy_droidcam_source = obs_get_source_by_name(name);
     if (!dummy_droidcam_source) {
         obs_data_t *settings = obs_data_create();
@@ -76,7 +74,6 @@ AddDevice::AddDevice(QWidget *parent) : QDialog(parent),
         dummy_properties = obs_source_properties((obs_source_t *) dummy_droidcam_source);
         obs_data_release(settings);
     }
-    dummy_source_priv_data = NULL;
 }
 
 AddDevice::~AddDevice() {
@@ -100,6 +97,14 @@ void AddDevice::ShowHideDialog(int show) {
     }
 }
 
+void AddDevice::AddListEntry(const char *name, void* data) {
+    QListWidgetItem *item = new QListWidgetItem(phoneIcon, name, ui->deviceList_widget);
+    item->setData(Qt::UserRole, QVariant::fromValue(data));
+    QFont font = item->font();
+    font.setPointSize(14);
+    item->setFont(font);
+}
+
 void AddDevice::ClearList() {
     while (ui->deviceList_widget->count() > 0) {
         QListWidgetItem *item = ui->deviceList_widget->takeItem(0);
@@ -110,7 +115,7 @@ void AddDevice::ClearList() {
 }
 
 void AddDevice::ReloadList() {
-    if (dummy_droidcam_source && dummy_properties && dummy_source_priv_data) {
+    if (dummy_droidcam_source && dummy_properties) {
         ReloadThread* thread = new ReloadThread();
         thread->parent = this;
         connect(thread, &ReloadThread::AddListEntry, this, &AddDevice::AddListEntry);
@@ -124,8 +129,8 @@ void AddDevice::ReloadList() {
         thread->start();
     }
     else {
-        elog("AddDevice UI: Trying to reload device list without dummy source: '%p' '%p' '%p'",
-            dummy_droidcam_source, dummy_properties, dummy_source_priv_data);
+        elog("AddDevice UI: Trying to reload device list without dummy source: '%p' '%p'",
+            dummy_droidcam_source, dummy_properties);
     }
 
     return;
@@ -134,21 +139,23 @@ void AddDevice::ReloadList() {
 void ReloadThread::ReloadList() {
     auto ppts = (obs_properties_t *) parent->dummy_properties;
     obs_property_t *p = obs_properties_get(ppts, OPT_REFRESH);
+    parent->dummy_source_priv_data = NULL;
 
-    if (p && obs_property_button_clicked(p, parent->dummy_droidcam_source))
+    if (p && obs_property_button_clicked(p, parent->dummy_droidcam_source)
+            && parent->dummy_source_priv_data /* set in the refresh handler */)
     {
         obs_property_t *list = obs_properties_get(ppts, OPT_DEVICE_LIST);
         for (size_t i = 0; i < obs_property_list_item_count(list); i++) {
             const char *name = obs_property_list_item_name(list, i);
             const char *value = obs_property_list_item_string(list, i);
-            if (!name || !value)
+            if (!(name && value))
                 continue;
 
             if (strncmp(value, opt_use_wifi, sizeof(OPT_DEVICE_ID_WIFI)-1) == 0)
                 continue;
 
 
-            auto info = (ActiveDeviceInfo *) bzalloc(sizeof(ActiveDeviceInfo));
+            auto info = (DeviceInfo *) bzalloc(sizeof(DeviceInfo));
             info->id = value;
             info->ip = "";
             info->port = 4747;
@@ -159,7 +166,7 @@ void ReloadThread::ReloadList() {
     }
 
     // FIXME testing
-    auto info = (ActiveDeviceInfo *) bzalloc(sizeof(ActiveDeviceInfo));
+    auto info = (DeviceInfo *) bzalloc(sizeof(DeviceInfo));
     info->type = DeviceType::WIFI;
     info->port = 4747;
     info->id = "192.168.0.69";
@@ -172,14 +179,6 @@ void AddDevice::ReloadFinish() {
     loadingSvg.renderer()->blockSignals(true);
     loadingSvg.setVisible(false);
     ui->refresh_button->setVisible(true);
-}
-
-void AddDevice::AddListEntry(const char *name, void* data) {
-    QListWidgetItem *item = new QListWidgetItem(phoneIcon, name, ui->deviceList_widget);
-    item->setData(Qt::UserRole, QVariant::fromValue(data));
-    QFont font = item->font();
-    font.setPointSize(14);
-    item->setFont(font);
 }
 
 static bool removeSource(obs_source_t *source) {
@@ -220,13 +219,28 @@ void AddDevice::CreateNewSource(QListWidgetItem *item) {
     ilog("want to add: %s", device_name);
 
     obs_enum_sources([](void *data, obs_source_t *source) -> bool {
-        const char *id = obs_source_get_id(source);
+        const char *sid = obs_source_get_id(source);
         const char *name = obs_source_get_name(source);
-        if (data && id && name && strcmp(id, DROIDCAM_OBS_ID) == 0) {
-            ilog("checking existing source %s", name);
+        if (data && sid && name && strcmp(sid, DROIDCAM_OBS_ID) == 0) {
             auto item = (QListWidgetItem*) data;
             if (item->text() == QString(name)) {
-                ilog("duplicate found");
+                ilog("existing source name %s matched", name);
+                goto found;
+            }
+
+            const char *id;
+            obs_data_t *settings = obs_source_get_settings(source);
+            if (settings) {
+                id = obs_data_get_string(settings, OPT_ACTIVE_DEV_ID);
+                obs_data_release(settings);
+            } else {
+                id = NULL;
+            }
+
+            DeviceInfo* device_info = (DeviceInfo*) item->data(Qt::UserRole).value<void*>();
+            if (id && device_info && device_info->id && strcmp(id, device_info->id) == 0) {
+                ilog("existing source id %s matched", id);
+                found:
                 // replace the data to indicate a duplicate was found
                 item->setData(Qt::UserRole, QVariant::fromValue((void*)source));
                 return false;
@@ -262,7 +276,7 @@ void AddDevice::CreateNewSource(QListWidgetItem *item) {
         return;
     }
 
-    ActiveDeviceInfo* device_info = (ActiveDeviceInfo *) data;
+    DeviceInfo* device_info = (DeviceInfo *) data;
     obs_data_t *settings = obs_data_create();
     obs_data_set_int(settings, OPT_ACTIVE_DEV_TYPE, (int) device_info->type);
     obs_data_set_string(settings, OPT_ACTIVE_DEV_ID, device_info->id);

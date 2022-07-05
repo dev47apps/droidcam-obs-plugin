@@ -4,9 +4,9 @@
 #include <QtWidgets/QDialog>
 #include <QtGui/QIcon>
 #include <QtSvg/QSvgWidget>
-#include "ui_AddDevice.h"
+#include "uic_AddDevice.h"
 
-typedef struct active_device_info ActiveDeviceInfo;
+typedef struct active_device_info DeviceInfo;
 
 class AddDevice : public QDialog {
     Q_OBJECT

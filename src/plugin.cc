@@ -572,6 +572,8 @@ static void *plugin_create(obs_data_t *settings, obs_source_t *source) {
     plugin->source = source;
     plugin->audio_running = false;
     plugin->video_running = false;
+    plugin->audio_decoder = NULL;
+    plugin->video_decoder = NULL;
     plugin->adbMgr = new AdbMgr();
     plugin->iosMgr = new USBMux();
     plugin->mdnsMgr = new MDNS();
