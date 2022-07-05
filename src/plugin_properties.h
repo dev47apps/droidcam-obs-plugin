@@ -52,7 +52,6 @@ struct active_device_info {
     const char *ip;
 };
 
-
 enum VideoFormat {
     FORMAT_AVC,
     FORMAT_MJPG,
@@ -71,6 +70,8 @@ static const char* Resolutions[] = {
     "1280x720",
     "1920x1080",
 };
+
+DeviceType get_device_type(const char *id, void* data);
 
 static inline int getResolutionIndex(const char* resolution) {
     for (size_t i = 0; i < ARRAY_LEN(Resolutions); i++) {

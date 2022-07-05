@@ -26,6 +26,7 @@ public:
     QIcon phoneIcon;
     void *dummy_droidcam_source;
     void *dummy_properties;
+    void *dummy_source_priv_data;
     bool enable_audio;
     std::unique_ptr<Ui_AddDeviceDC> ui;
     ~AddDevice();

@@ -17,11 +17,14 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <stdlib.h>
 #include <util/threading.h>
 #include <util/platform.h>
+
 #ifdef DROIDCAM_OVERRIDE
 #include <QtWidgets/QAction>
 #include <QtWidgets/QMainWindow>
 #include "AddDevice.h"
 #include "obs-frontend-api.h"
+
+AddDevice* addDevUI = NULL;
 #endif
 
 #include "plugin.h"
@@ -585,9 +588,9 @@ static void *plugin_create(obs_data_t *settings, obs_source_t *source) {
         VideoFormatNames[plugin->video_format][1],
         Resolutions[plugin->video_resolution]);
 
-    // Dummy source, do not create threads & decoders
+    // dummy source, do not create threads & decoders
     if (obs_data_get_bool(settings, OPT_DUMMY_SOURCE)) {
-        dlog("Dummy Source Created");
+        dlog("dummy source created");
         plugin->time_start = 0;
         return plugin;
     }
@@ -659,13 +662,41 @@ static inline void toggle_ppts(obs_properties_t *ppts, bool enable) {
     obs_property_set_enabled(obs_properties_get(ppts, OPT_USE_HW_ACCEL), enable);
 }
 
-static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *data) {
+DeviceType get_device_type(const char *id, void* data) {
+    if (!data) goto out;
+
     droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
 
     Device* dev;
     AdbMgr* adbMgr = plugin->adbMgr;
     USBMux* iosMgr = plugin->iosMgr;
     MDNS  *mdnsMgr = plugin->mdnsMgr;
+
+    dev = mdnsMgr->GetDevice(id);
+    if (dev) {
+        return DeviceType::MDNS;
+    }
+
+    dev = adbMgr->GetDevice(id);
+    if (dev) {
+        if (adbMgr->DeviceOffline(dev)) {
+            elog("adb device is offline");
+            goto out;
+        }
+
+        return DeviceType::ADB;
+    }
+
+    dev = iosMgr->GetDevice(id);
+    if (dev) {
+        return DeviceType::IOS;
+    }
+    out:
+    return DeviceType::NONE;
+}
+
+static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *data) {
+    droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
     struct active_device_info *device_info = &plugin->device_info;
 
     obs_data_t *settings = obs_source_get_settings(plugin->source);
@@ -704,36 +735,16 @@ static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
         }
 
         device_info->type = DeviceType::WIFI;
-        goto found_device;
+    }
+    else {
+        device_info->type = get_device_type(device_info->id, data);
     }
 
-    dev = mdnsMgr->GetDevice(device_info->id);
-    if (dev) {
-        device_info->type = DeviceType::MDNS;
-        goto found_device;
+    if (device_info->type == DeviceType::NONE) {
+        elog("unable to determine devce type, refresh device list and try again");
+        goto out;
     }
 
-    dev = adbMgr->GetDevice(device_info->id);
-    if (dev) {
-        if (adbMgr->DeviceOffline(dev)) {
-            elog("adb device is offline");
-            goto out;
-        }
-
-        device_info->type = DeviceType::ADB;
-        goto found_device;
-    }
-
-    dev = iosMgr->GetDevice(device_info->id);
-    if (dev) {
-        device_info->type = DeviceType::IOS;
-        goto found_device;
-    }
-
-    elog("unable to determine devce type, refresh device list and try again");
-    goto out;
-
-found_device:
     obs_property_set_description(cp, TEXT_DEACTIVATE);
     plugin->video_format = (VideoFormat) obs_data_get_int(settings, OPT_VIDEO_FORMAT);
     plugin->video_resolution = obs_data_get_int(settings, OPT_RESOLUTION);
@@ -747,7 +758,6 @@ found_device:
     ilog("video_format=%d/%s video_resolution=%d/%s",
         plugin->video_format, VideoFormatNames[plugin->video_format][1],
         plugin->video_resolution, Resolutions[plugin->video_resolution]);
-
 
 out:
     obs_property_set_enabled(cp, true);
@@ -764,7 +774,16 @@ static bool refresh_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
     obs_property_t *cp = obs_properties_get(ppts, OPT_CONNECT);
     obs_property_set_enabled(cp, false);
 
-    ilog("Refresh Device List clicked");
+    if (plugin->time_start == 0) {
+        // dummy mode
+        #if DROIDCAM_OVERRIDE
+        if (addDevUI) addDevUI->dummy_source_priv_data = plugin;
+        #endif
+    }
+    else {
+        ilog("Refresh Device List clicked");
+    }
+
     mdnsMgr->Reload();
     adbMgr->Reload();
     iosMgr->Reload();
@@ -921,10 +940,6 @@ OBS_MODULE_USE_DEFAULT_LOCALE("droidcam-obs", "en-US")
 MODULE_EXPORT const char *obs_module_description(void) {
     return "Android and iOS camera source";
 }
-
-#ifdef DROIDCAM_OVERRIDE
-AddDevice* addDevUI = NULL;
-#endif
 
 bool obs_module_load(void) {
     memset(&droidcam_obs_info, 0, sizeof(struct obs_source_info));

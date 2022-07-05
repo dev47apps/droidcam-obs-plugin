@@ -8,12 +8,10 @@
 #include "plugin_properties.h"
 #include "obs-frontend-api.h"
 
-// https://stackoverflow.com/a/58151363
-
 // FIXME: res
 #define DROIDCAM_OBS_ID "droidcam_obs"
 #define LOADING_SVG "C:\\Users\\admin\\Downloads\\loading.svg"
-#define PHONE_ICON  "C:\\Users\\admin\\source\\android-studio\\screenstream1\\app\\src\\main\\res\\drawable-xhdpi\\ic_android_phone.png"
+#define PHONE_ICON  "C:\\Users\\admin\\Downloads\\smartphone.svg"
 
 inline static void retainSize(QWidget *item) {
     QSizePolicy sp = item->sizePolicy(); sp.setRetainSizeWhenHidden(true); item->setSizePolicy(sp);
@@ -21,7 +19,6 @@ inline static void retainSize(QWidget *item) {
 
 AddDevice::AddDevice(QWidget *parent) : QDialog(parent),
     loadingSvg(LOADING_SVG, this),
-    phoneIcon(PHONE_ICON),
     ui(new Ui_AddDeviceDC)
 {
     loadingSvg.renderer()->setAspectRatioMode(Qt::KeepAspectRatio);
@@ -36,6 +33,7 @@ AddDevice::AddDevice(QWidget *parent) : QDialog(parent),
     retainSize(ui->refresh_button);
     retainSize(ui->addDevice_button);
 
+    phoneIcon.addFile(PHONE_ICON, QSize(96, 96));
     ui->addDevice_label->setStyleSheet("font-size: 14pt;");
     ui->addDevice_button->setVisible(false);
     ui->refresh_button->setVisible(false);
@@ -78,6 +76,7 @@ AddDevice::AddDevice(QWidget *parent) : QDialog(parent),
         dummy_properties = obs_source_properties((obs_source_t *) dummy_droidcam_source);
         obs_data_release(settings);
     }
+    dummy_source_priv_data = NULL;
 }
 
 AddDevice::~AddDevice() {
@@ -111,7 +110,7 @@ void AddDevice::ClearList() {
 }
 
 void AddDevice::ReloadList() {
-    if (dummy_droidcam_source && dummy_properties) {
+    if (dummy_droidcam_source && dummy_properties && dummy_source_priv_data) {
         ReloadThread* thread = new ReloadThread();
         thread->parent = this;
         connect(thread, &ReloadThread::AddListEntry, this, &AddDevice::AddListEntry);
@@ -125,7 +124,8 @@ void AddDevice::ReloadList() {
         thread->start();
     }
     else {
-        elog("AddDevice UI: Trying to reload device list without dummy source");
+        elog("AddDevice UI: Trying to reload device list without dummy source: '%p' '%p' '%p'",
+            dummy_droidcam_source, dummy_properties, dummy_source_priv_data);
     }
 
     return;
@@ -149,17 +149,19 @@ void ReloadThread::ReloadList() {
 
 
             auto info = (ActiveDeviceInfo *) bzalloc(sizeof(ActiveDeviceInfo));
-            // FIXME-- TODO
-            info->type = DeviceType::NONE;
             info->id = value;
-            info->ip = "192.168.0.69";
-            emit AddListEntry(name, info);
+            info->ip = "";
+            info->port = 4747;
+            info->type = get_device_type(info->id, parent->dummy_source_priv_data);
+            if (info->type != DeviceType::NONE)
+                emit AddListEntry(name, info);
         }
     }
 
     // FIXME testing
     auto info = (ActiveDeviceInfo *) bzalloc(sizeof(ActiveDeviceInfo));
     info->type = DeviceType::WIFI;
+    info->port = 4747;
     info->id = "192.168.0.69";
     info->ip = "192.168.0.69";
     emit AddListEntry("Test device [USBx]", info);
