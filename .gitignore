@@ -1,4 +1,6 @@
 build/
+src/ui/moc_*
+src/ui/uic_*
 
 DroidCamOBS.pkgproj
 macos-adb-check.sh

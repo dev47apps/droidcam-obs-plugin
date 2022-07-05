@@ -8,23 +8,31 @@
 #include "plugin_properties.h"
 #include "obs-frontend-api.h"
 
-// FIXME: res
 #define DROIDCAM_OBS_ID "droidcam_obs"
-#define LOADING_SVG "C:\\Users\\admin\\Downloads\\loading.svg"
-#define PHONE_ICON  "C:\\Users\\admin\\Downloads\\smartphone.svg"
 
 inline static void retainSize(QWidget *item) {
     QSizePolicy sp = item->sizePolicy(); sp.setRetainSizeWhenHidden(true); item->setSizePolicy(sp);
 }
 
 AddDevice::AddDevice(QWidget *parent) : QDialog(parent),
-    loadingSvg(LOADING_SVG, this),
+    loadingSvg(this),
     ui(new Ui_AddDeviceDC)
 {
+    char *file = obs_module_file("loading.svg");
+    if (file) {
+        QString path(file);
+        loadingSvg.load(path);
+        bfree(file);
+    }
     loadingSvg.renderer()->setAspectRatioMode(Qt::KeepAspectRatio);
     loadingSvg.renderer()->blockSignals(true);
     loadingSvg.setVisible(false);
-    phoneIcon.addFile(PHONE_ICON, QSize(96, 96));
+
+    file = obs_module_file("smartphone.svg");
+    if (file) {
+        phoneIcon.addFile(file, QSize(96, 96));
+        bfree(file);
+    }
 
     ui->setupUi(this);
     Qt::WindowFlags flags = windowFlags();
