@@ -145,6 +145,27 @@ out:
     return INVALID_SOCKET;
 }
 
+#ifdef DROIDCAM_OVERRIDE
+static const char *droidcam_signals[] = {
+    "void droidcam_connect(ptr source)",
+    "void droidcam_disconnect(ptr source)",
+    NULL,
+};
+
+static void droidcam_signal(obs_source_t* source, const char* signal) {
+    calldata_t cd;
+    calldata_init(&cd);
+    calldata_set_ptr(&cd, "source", source);
+    dlog("droidcam_signal -> \"%s\" source=%p/'%s'", signal, source,
+        obs_source_get_name(source));
+    signal_handler_signal(obs_get_signal_handler(), signal, &cd);
+    calldata_free(&cd);
+}
+
+#else
+#define droidcam_signal(source, signal) /*o*/
+#endif
+
 #define MAXCONFIG 1024
 #define MAXPACKET 1024 * 1024
 static DataPacket*
@@ -358,6 +379,7 @@ SLOW_LOOP:
 
             plugin->video_running = true;
             dlog("starting video via socket %d", sock);
+            droidcam_signal(plugin->source, "droidcam_connect");
             continue;
         }
 
@@ -365,6 +387,7 @@ SLOW_LOOP:
         video_req_len = 0;
         if (plugin->video_running) {
             plugin->video_running = false;
+            droidcam_signal(plugin->source, "droidcam_disconnect");
         }
 
 LOOP:
@@ -965,6 +988,7 @@ bool obs_module_load(void) {
     obs_register_source(&droidcam_obs_info);
 
     #ifdef DROIDCAM_OVERRIDE
+    signal_handler_add_array(obs_get_signal_handler(), droidcam_signals);
     QMainWindow *main_window = (QMainWindow *)obs_frontend_get_main_window();
     obs_frontend_push_ui_translation(obs_module_get_string);
     addDevUI = new AddDevice(main_window);
