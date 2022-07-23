@@ -29,6 +29,7 @@ public:
     void *dummy_source_priv_data;
     bool enable_audio;
     std::unique_ptr<Ui_AddDeviceDC> ui;
+    std::unique_ptr<QThread> thread;
     ~AddDevice();
     explicit AddDevice(QWidget *parent);
     void ShowHideDialog(int show);
@@ -37,19 +38,12 @@ public:
 
 class ReloadThread : public QThread {
     Q_OBJECT
-    void run() override {
-        ReloadList();
-        emit ReloadFinish();
-    }
-
-private:
-    void ReloadList();
+    virtual void run() override;
 
 signals:
     void AddListEntry(const char *name, void* data);
-    void ReloadFinish();
 
 public:
     AddDevice *parent;
-
+    ReloadThread(AddDevice *parent_) : parent(parent_) {}
 };

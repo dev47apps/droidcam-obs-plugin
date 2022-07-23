@@ -85,6 +85,8 @@ AddDevice::AddDevice(QWidget *parent) : QDialog(parent),
 }
 
 AddDevice::~AddDevice() {
+    if (thread) thread->wait();
+
     ClearList();
     obs_properties_destroy((obs_properties_t *)dummy_properties);
     obs_source_release((obs_source_t *) dummy_droidcam_source);
@@ -106,6 +108,9 @@ void AddDevice::ShowHideDialog(int show) {
 }
 
 void AddDevice::AddListEntry(const char *name, void* data) {
+    if (!isVisible())
+        return;
+
     QListWidgetItem *item = new QListWidgetItem(phoneIcon, name, ui->deviceList_widget);
     item->setData(Qt::UserRole, QVariant::fromValue(data));
     QFont font = item->font();
@@ -124,11 +129,12 @@ void AddDevice::ClearList() {
 
 void AddDevice::ReloadList() {
     if (dummy_droidcam_source && dummy_properties) {
-        ReloadThread* thread = new ReloadThread();
-        thread->parent = this;
-        connect(thread, &ReloadThread::AddListEntry, this, &AddDevice::AddListEntry);
-        connect(thread, &ReloadThread::ReloadFinish, this, &AddDevice::ReloadFinish);
-        connect(thread, &ReloadThread::finished, thread, &QObject::deleteLater);
+        if (thread && thread->isRunning())
+            return;
+
+        thread.reset(new ReloadThread(this));
+        connect((ReloadThread*) thread.get(), &ReloadThread::AddListEntry, this, &AddDevice::AddListEntry);
+        connect((ReloadThread*) thread.get(), &ReloadThread::finished, this, &AddDevice::ReloadFinish);
 
         loadingSvg.setVisible(true);
         loadingSvg.renderer()->blockSignals(false);
@@ -144,7 +150,7 @@ void AddDevice::ReloadList() {
     return;
 }
 
-void ReloadThread::ReloadList() {
+void ReloadThread::run() {
     auto ppts = (obs_properties_t *) parent->dummy_properties;
     obs_property_t *p = obs_properties_get(ppts, OPT_REFRESH);
     parent->dummy_source_priv_data = NULL;
@@ -168,25 +174,19 @@ void ReloadThread::ReloadList() {
             info->ip = "";
             info->port = 4747;
             info->type = get_device_type(info->id, parent->dummy_source_priv_data);
-            if (info->type != DeviceType::NONE)
+            if (info->type != DeviceType::NONE && parent->isVisible())
                 emit AddListEntry(name, info);
         }
     }
-
-    // FIXME testing
-    auto info = (DeviceInfo *) bzalloc(sizeof(DeviceInfo));
-    info->type = DeviceType::WIFI;
-    info->port = 4747;
-    info->id = "192.168.0.69";
-    info->ip = "192.168.0.69";
-    emit AddListEntry("Test device [USBx]", info);
 }
 
 
 void AddDevice::ReloadFinish() {
-    loadingSvg.renderer()->blockSignals(true);
-    loadingSvg.setVisible(false);
-    ui->refresh_button->setVisible(true);
+    if (isVisible()) {
+        loadingSvg.renderer()->blockSignals(true);
+        loadingSvg.setVisible(false);
+        ui->refresh_button->setVisible(true);
+    }
 }
 
 static bool removeSource(obs_source_t *source) {
@@ -295,12 +295,33 @@ void AddDevice::CreateNewSource(QListWidgetItem *item) {
     obs_data_set_int(settings, OPT_RESOLUTION, getResolutionIndex(resolution));
 
     obs_data_set_bool(settings, OPT_ENABLE_AUDIO, enable_audio);
-    // TODO obs_data_set_bool(settings, OPT_IS_ACTIVATED, true);
+    obs_data_set_bool(settings, OPT_IS_ACTIVATED, true);
 
     obs_source_t *source = obs_source_create(DROIDCAM_OBS_ID, device_name, settings, nullptr);
     if (source) {
         obs_source_t *scene = obs_frontend_get_current_scene();
-        obs_scene_add(obs_scene_from_source(scene), source);
+        obs_sceneitem_t *item = obs_scene_add(obs_scene_from_source(scene), source);
+
+        // Apply Fit to screen transform
+        obs_transform_info txi;
+        vec2_set(&txi.pos, 0.0f, 0.0f);
+        vec2_set(&txi.scale, 1.0f, 1.0f);
+        txi.alignment = OBS_ALIGN_LEFT | OBS_ALIGN_TOP;
+        txi.rot = 0.0f;
+
+        vec2_set(&txi.bounds, float(ovi.base_width), float(ovi.base_height));
+        txi.bounds_type = OBS_BOUNDS_SCALE_INNER;
+        txi.bounds_alignment = OBS_ALIGN_CENTER;
+        obs_sceneitem_set_info(item, &txi);
+
+        // Add a noise suppression filter
+        if (enable_audio) {
+            obs_source_t* filter = obs_source_create("noise_suppress_filter",
+                "Noise suppression", nullptr, nullptr);
+            obs_source_filter_add(source, filter);
+            obs_source_release(filter);
+        }
+
         obs_source_release(source);
         obs_source_release(scene);
     }
