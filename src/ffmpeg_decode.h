@@ -32,7 +32,6 @@ extern "C" {
 #endif
 
 #include <libavcodec/avcodec.h>
-#include <libavutil/log.h>
 
 #ifdef _MSC_VER
 #pragma warning(pop)
@@ -45,8 +44,8 @@ extern "C" {
 #include "decoder.h"
 
 struct FFMpegDecoder : Decoder {
+	const AVCodec *codec;
 	AVCodecContext *decoder;
-	AVCodec *codec;
 	AVPacket *packet;
 	AVBufferRef *hw_ctx;
 	AVFrame *frame_hw;
@@ -58,7 +57,6 @@ struct FFMpegDecoder : Decoder {
 
 	FFMpegDecoder(void) {
 		decoder = NULL;
-		codec = NULL;
 		packet = NULL;
 		hw_ctx = NULL;
 		frame = NULL;
