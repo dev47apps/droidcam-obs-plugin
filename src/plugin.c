@@ -569,7 +569,7 @@ static void plugin_destroy(void *data) {
             ilog("stopping");
             os_event_signal(plugin->stop_signal);
             pthread_join(plugin->video_thread, NULL);
-            pthread_join(plugin->audio_thread, NULL);
+            // pthread_join(plugin->audio_thread, NULL);
 
             pthread_join(plugin->video_decode_thread, NULL);
         }
@@ -645,10 +645,10 @@ static void *plugin_create(obs_data_t *settings, obs_source_t *source) {
         return NULL;
     }
 
-    if (pthread_create(&plugin->audio_thread, NULL, audio_thread, plugin) != 0) {
-        plugin_destroy(plugin);
-        return NULL;
-    }
+    // if (pthread_create(&plugin->audio_thread, NULL, audio_thread, plugin) != 0) {
+    //     plugin_destroy(plugin);
+    //     return NULL;
+    // }
 
     plugin->time_start = os_gettime_ns() / 100;
     return plugin;
@@ -895,7 +895,7 @@ static obs_properties_t *plugin_properties(void *data) {
     obs_properties_add_int(ppts, OPT_CONNECT_PORT, "DroidCam Port", 1, 65535, 1);
 
     cp = obs_properties_add_button(ppts, OPT_CONNECT, TEXT_CONNECT, connect_clicked);
-    obs_properties_add_bool(ppts, OPT_ENABLE_AUDIO, TEXT_ENABLE_AUDIO);
+    // obs_properties_add_bool(ppts, OPT_ENABLE_AUDIO, TEXT_ENABLE_AUDIO);
     // obs_properties_add_bool(ppts, OPT_SYNC_AV, TEXT_SYNC_AV);
     obs_properties_add_bool(ppts, OPT_DEACTIVATE_WNS, TEXT_DWNS);
     obs_properties_add_bool(ppts, OPT_USE_HW_ACCEL, TEXT_USE_HW_ACCEL);
@@ -937,7 +937,7 @@ bool obs_module_load(void) {
 
     droidcam_obs_info.id           = "droidcam_obs";
     droidcam_obs_info.type         = OBS_SOURCE_TYPE_INPUT;
-    droidcam_obs_info.output_flags = OBS_SOURCE_DO_NOT_DUPLICATE | OBS_SOURCE_AUDIO | OBS_SOURCE_ASYNC_VIDEO;
+    droidcam_obs_info.output_flags = OBS_SOURCE_DO_NOT_DUPLICATE | OBS_SOURCE_ASYNC_VIDEO;
     droidcam_obs_info.get_name     = plugin_getname;
     droidcam_obs_info.create       = plugin_create;
     droidcam_obs_info.destroy      = plugin_destroy;
