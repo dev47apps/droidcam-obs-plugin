@@ -4,15 +4,14 @@ DATA_DIR = data
 BUILD_DIR = build
 
 RM       = rm -f
-CXX      = g++
-CXXFLAGS = -std=c++11 -x c++ -Wall -fPIC
+CXXFLAGS += -std=c++11 -Wall -fPIC
 INCLUDES = -Isrc/
 LDD_DIRS =
 LDD_LIBS =
 LDD_FLAG =
 LIB_DLL  = $(BUILD_DIR)/droidcam-obs.so
 STATIC   =
-SRC      = $(shell ls src/*.c src/sys/unix/*.c)
+SRC      = $(shell ls src/*.cc src/sys/unix/*.cc)
 
 ifeq ($(OS),Windows_NT)
 all:
@@ -49,11 +48,8 @@ ifeq "$(ALLOW_STATIC)" "yes"
 	STATIC += $(IMOBILEDEV_DIR)/lib/libplist-2.0.a
 
 else
-	LDD_DIRS += -L$(JPEG_LIB)
-	LDD_DIRS += -L$(IMOBILEDEV_DIR)/lib
-
 	LDD_LIBS += -lturbojpeg
-	LDD_LIBS += -limobiledevice
+	LDD_LIBS += -limobiledevice-1.0
 endif
 
 INCLUDES += -I$(IMOBILEDEV_DIR)/include
