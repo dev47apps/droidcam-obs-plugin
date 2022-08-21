@@ -25,6 +25,12 @@
 #error LIBAVCODEC VERSION 58,9,100 REQUIRED
 #endif
 
+#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(59, 24, 100)
+#define DECODER_CHANNELS		decoder->channels
+#else
+#define DECODER_CHANNELS		decoder->ch_layout.nb_channels
+#endif
+
 // https://trac.ffmpeg.org/wiki/HWAccelIntro
 // https://ffmpeg.org/doxygen/3.4/hw__decode_8c_source.html
 
@@ -113,10 +119,13 @@ int FFMpegDecoder::init(uint8_t* header, enum AVCodecID id, bool use_hw)
 			elog("failed to parse AAC header, sr_idx=%d [0x%2x 0x%2x]", sr_idx, header[0], header[1]);
 			return -1;
 		}
+
 		decoder->sample_rate = aac_frequencies[sr_idx];
 		decoder->profile = FF_PROFILE_AAC_LOW;
-		decoder->channels = (header[1] >> 3) & 0xF;
-		ilog("audio: sample_rate=%d channels=%d", decoder->sample_rate, decoder->channels);
+
+		const int channels = (header[1] >> 3) & 0xF;
+		#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(59, 24, 100)
+		decoder->channels = channels;
 		switch (decoder->channels) {
 			case 1:
 				decoder->channel_layout = AV_CH_LAYOUT_MONO;
@@ -127,6 +136,11 @@ int FFMpegDecoder::init(uint8_t* header, enum AVCodecID id, bool use_hw)
 			default:
 				decoder->channel_layout = 0; // unknown
 		}
+		#else
+		av_channel_layout_default(&decoder->ch_layout, channels);
+		#endif
+
+		ilog("audio: sample_rate=%d channels=%d", decoder->sample_rate, DECODER_CHANNELS);
 	}
 
 	if (use_hw) {
@@ -439,7 +453,7 @@ GOT_FRAME:
 
 	if (obs_frame->format == AUDIO_FORMAT_UNKNOWN) {
 		obs_frame->format = convert_sample_format(frame->format);
-		obs_frame->speakers = convert_speaker_layout(decoder->channels);
+		obs_frame->speakers = convert_speaker_layout(DECODER_CHANNELS);
 	}
 
 	*got_output = true;
