@@ -845,11 +845,17 @@ static void plugin_update(void *data, obs_data_t *settings) {
 
 static obs_properties_t *plugin_properties(void *data) {
     droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
-    obs_data_t *settings = obs_source_get_settings(plugin->source);
     obs_properties_t *ppts = obs_properties_create();
     obs_property_t *cp;
-    bool activated = obs_data_get_bool(settings, OPT_IS_ACTIVATED);
-    dlog("plugin_properties: activated=%d (actual=%d)", plugin->activated, activated);
+    bool activated = false;
+
+    if (plugin) {
+        obs_data_t *settings = obs_source_get_settings(plugin->source);
+        activated = obs_data_get_bool(settings, OPT_IS_ACTIVATED);
+        obs_data_release(settings);
+    }
+
+    dlog("plugin_properties: activated=%d", activated);
 
     cp = obs_properties_add_list(ppts, OPT_RESOLUTION, TEXT_RESOLUTION, OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
     for (size_t i = 0; i < ARRAY_LEN(Resolutions); i++)
@@ -861,7 +867,7 @@ static obs_properties_t *plugin_properties(void *data) {
 
     obs_properties_add_list(ppts, OPT_DEVICE_LIST, TEXT_DEVICE, OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
     cp = obs_properties_get(ppts, OPT_DEVICE_LIST);
-    {
+    if (plugin) {
         Device* dev;
         AdbMgr *adbMgr = plugin->adbMgr;
         USBMux* iosMgr = plugin->iosMgr;
@@ -905,7 +911,6 @@ static obs_properties_t *plugin_properties(void *data) {
         obs_property_set_description(cp, TEXT_DEACTIVATE);
     }
 
-    obs_data_release(settings);
     return ppts;
 }
 
