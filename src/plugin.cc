@@ -19,8 +19,13 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <util/platform.h>
 
 #ifdef DROIDCAM_OVERRIDE
+#define ENABLE_GUI 1
+#endif
+
+#if ENABLE_GUI
 #include <QtWidgets/QAction>
 #include <QtWidgets/QMainWindow>
+#include <QtWidgets/QMessageBox>
 #include "AddDevice.h"
 #include "obs-frontend-api.h"
 
@@ -119,7 +124,7 @@ static socket_t connect(struct droidcam_obs_plugin *plugin) {
                 goto out;
             }
 
-            socket_t rc = net_connect(ADB_LOCALHOST_IP, plugin->usb_port);
+            socket_t rc = net_connect(localhost_ip, plugin->usb_port);
             if (rc > 0) return rc;
 
             elog("adb connect failed");
@@ -156,8 +161,8 @@ static void droidcam_signal(obs_source_t* source, const char* signal) {
     calldata_t cd;
     calldata_init(&cd);
     calldata_set_ptr(&cd, "source", source);
-    dlog("droidcam_signal -> \"%s\" source=%p/'%s'", signal, source,
-        obs_source_get_name(source));
+    // dlog("droidcam_signal: \"%s\" source %p/'%s'", signal, source,
+    //     obs_source_get_name(source));
     signal_handler_signal(obs_get_signal_handler(), signal, &cd);
     calldata_free(&cd);
 }
@@ -311,6 +316,7 @@ recv_video_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
 
         plugin->video_decoder = decoder;
         plugin->obs_video_frame.format = VIDEO_FORMAT_NONE;
+        plugin->obs_video_frame.range  = VIDEO_RANGE_DEFAULT;
         if (!init) {
             elog("could not initialize decoder");
             decoder->failed = true;
@@ -337,6 +343,7 @@ recv_video_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
 static void *video_thread(void *data) {
     droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
     socket_t sock = INVALID_SOCKET;
+    char remote_url[64];
     char video_req[64];
     int video_req_len = 0;
 
@@ -379,6 +386,22 @@ static void *video_thread(void *data) {
 
             plugin->video_running = true;
             dlog("starting video via socket %d", sock);
+
+            // xxx - Is there a nicer way ???
+            int port = plugin->device_info.port;
+            if (plugin->device_info.type == DeviceType::ADB) {
+                port = plugin->usb_port;
+            } else {
+                port = plugin->device_info.port;
+            }
+
+            snprintf(remote_url, sizeof(remote_url), "http://%s:%d", plugin->device_info.ip, port);
+            dlog("remote_url=%s", remote_url); // FIMXE testing
+
+            obs_data_t *settings = obs_source_get_settings(plugin->source);
+            obs_data_set_string(settings, "remote_url", remote_url);
+            obs_data_release(settings);
+
             droidcam_signal(plugin->source, "droidcam_connect");
             continue;
         }
@@ -620,10 +643,11 @@ static void *plugin_create(obs_data_t *settings, obs_source_t *source) {
         return plugin;
     }
 
+    // FIXME test This
     if (plugin->activated) {
         plugin->device_info.id = obs_data_get_string(settings, OPT_ACTIVE_DEV_ID);
-        plugin->device_info.ip = obs_data_get_string(settings, OPT_CONNECT_IP);
-        plugin->device_info.port = (int) obs_data_get_int(settings, OPT_CONNECT_PORT);
+        plugin->device_info.ip = obs_data_get_string(settings, OPT_ACTIVE_DEV_IP);
+        plugin->device_info.port = (int) obs_data_get_int(settings, OPT_APP_PORT);
         plugin->device_info.type = (DeviceType) obs_data_get_int(settings, OPT_ACTIVE_DEV_TYPE);
         ilog("device_info.id=%s device_info.ip=%s device_info.port=%d device_info.type=%d",
             plugin->device_info.id, plugin->device_info.ip,
@@ -681,8 +705,8 @@ static inline void toggle_ppts(obs_properties_t *ppts, bool enable) {
     obs_property_set_enabled(obs_properties_get(ppts, OPT_VIDEO_FORMAT), enable);
     obs_property_set_enabled(obs_properties_get(ppts, OPT_REFRESH)     , enable);
     obs_property_set_enabled(obs_properties_get(ppts, OPT_DEVICE_LIST) , enable);
-    obs_property_set_enabled(obs_properties_get(ppts, OPT_CONNECT_IP)  , enable);
-    obs_property_set_enabled(obs_properties_get(ppts, OPT_CONNECT_PORT), enable);
+    obs_property_set_enabled(obs_properties_get(ppts, OPT_WIFI_IP)     , enable);
+    obs_property_set_enabled(obs_properties_get(ppts, OPT_APP_PORT)    , enable);
     obs_property_set_enabled(obs_properties_get(ppts, OPT_ENABLE_AUDIO), enable);
     obs_property_set_enabled(obs_properties_get(ppts, OPT_USE_HW_ACCEL), enable);
 }
@@ -713,12 +737,14 @@ void resolve_device_type(struct active_device_info *device_info, void* data) {
             goto out;
         }
 
+        device_info->ip = localhost_ip;
         device_info->type = DeviceType::ADB;
         return;
     }
 
     dev = iosMgr->GetDevice(id);
     if (dev) {
+        device_info->ip = localhost_ip;
         device_info->type = DeviceType::IOS;
         return;
     }
@@ -754,16 +780,25 @@ static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
         goto out;
     }
 
-    device_info->port = (int) obs_data_get_int(settings, OPT_CONNECT_PORT);
+    device_info->port = (int) obs_data_get_int(settings, OPT_APP_PORT);
     if (device_info->port <= 0 || device_info->port > 65535) {
         elog("invalid port: %d", device_info->port);
         goto out;
     }
 
-    if (strncmp(device_info->id, opt_use_wifi, sizeof(OPT_DEVICE_ID_WIFI)-1) == 0) {
-        device_info->ip = obs_data_get_string(settings, OPT_CONNECT_IP);
+    if (strncmp(device_info->id, opt_use_wifi, strlen(opt_use_wifi)) == 0) {
+        device_info->ip = obs_data_get_string(settings, OPT_WIFI_IP);
         if (!device_info->ip || device_info->ip[0] == 0) {
             elog("target IP is empty");
+
+            #if ENABLE_GUI
+            QString title = QString(obs_module_text("DroidCam"));
+            QString msg = QString(obs_module_text("NoWifiIP"));
+            QMessageBox mb(QMessageBox::Information, title, msg,
+                QMessageBox::StandardButtons(QMessageBox::Ok), nullptr);
+            mb.exec();
+            #endif
+
             goto out;
         }
 
@@ -784,6 +819,7 @@ static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
 
     toggle_ppts(ppts, false);
     obs_data_set_string(settings, OPT_ACTIVE_DEV_ID, device_info->id);
+    obs_data_set_string(settings, OPT_ACTIVE_DEV_IP, device_info->ip);
     obs_data_set_int(settings, OPT_ACTIVE_DEV_TYPE, (long long) device_info->type);
     obs_data_set_bool(settings, OPT_IS_ACTIVATED, true);
     plugin->activated = true;
@@ -929,8 +965,8 @@ static obs_properties_t *plugin_properties(void *data) {
     obs_property_list_add_string(cp, TEXT_USE_WIFI, opt_use_wifi);
     obs_properties_add_button(ppts, OPT_REFRESH, TEXT_REFRESH, refresh_clicked);
 
-    obs_properties_add_text(ppts, OPT_CONNECT_IP, "WiFi IP", OBS_TEXT_DEFAULT);
-    obs_properties_add_int(ppts, OPT_CONNECT_PORT, "DroidCam Port", 1, 65535, 1);
+    obs_properties_add_text(ppts, OPT_WIFI_IP, "WiFi IP", OBS_TEXT_DEFAULT);
+    obs_properties_add_int(ppts, OPT_APP_PORT, "DroidCam Port", 1, 65535, 1);
 
     cp = obs_properties_add_button(ppts, OPT_CONNECT, TEXT_CONNECT, connect_clicked);
     obs_properties_add_bool(ppts, OPT_ENABLE_AUDIO, TEXT_ENABLE_AUDIO);
@@ -954,7 +990,7 @@ static void plugin_defaults(obs_data_t *settings) {
     obs_data_set_default_bool(settings, OPT_USE_HW_ACCEL, true);
     obs_data_set_default_bool(settings, OPT_ENABLE_AUDIO, false);
     obs_data_set_default_bool(settings, OPT_DEACTIVATE_WNS, true);
-    obs_data_set_default_int(settings, OPT_CONNECT_PORT, DEFAULT_PORT);
+    obs_data_set_default_int(settings, OPT_APP_PORT, DEFAULT_PORT);
 }
 
 static const char *plugin_getname(void *data) {

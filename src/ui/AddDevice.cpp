@@ -26,7 +26,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "plugin_properties.h"
 #include "obs-frontend-api.h"
 
-#define DROIDCAM_OBS_ID "droidcam_obs"
+const char *DROIDCAM_OBS_ID = "droidcam_obs";
 
 inline static void retainSize(QWidget *item) {
     QSizePolicy sp = item->sizePolicy(); sp.setRetainSizeWhenHidden(true); item->setSizePolicy(sp);
@@ -341,7 +341,7 @@ void AddDevice::CreateNewSource(QListWidgetItem *item) {
                 return true;
 
             const char *id = obs_data_get_string(settings, OPT_ACTIVE_DEV_ID);
-            const char *ip = obs_data_get_string(settings, OPT_CONNECT_IP);
+            const char *ip = obs_data_get_string(settings, OPT_ACTIVE_DEV_IP);
             const DeviceType type = (DeviceType) obs_data_get_int(settings, OPT_ACTIVE_DEV_TYPE);
             obs_data_release(settings);
 
@@ -392,7 +392,8 @@ void AddDevice::CreateNewSource(QListWidgetItem *item) {
     obs_data_t *settings = obs_data_create();
     obs_data_set_int(settings, OPT_ACTIVE_DEV_TYPE, (int) device_info->type);
     obs_data_set_string(settings, OPT_ACTIVE_DEV_ID, device_info->id);
-    obs_data_set_string(settings, OPT_CONNECT_IP, device_info->ip);
+    obs_data_set_string(settings, OPT_ACTIVE_DEV_IP, device_info->ip);
+    obs_data_set_string(settings, OPT_WIFI_IP      , device_info->ip);
 
     obs_get_video_info(&ovi);
     snprintf(resolution, sizeof(resolution), "%dx%d", ovi.base_width, ovi.base_height);
