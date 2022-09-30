@@ -687,9 +687,11 @@ static inline void toggle_ppts(obs_properties_t *ppts, bool enable) {
     obs_property_set_enabled(obs_properties_get(ppts, OPT_USE_HW_ACCEL), enable);
 }
 
-DeviceType get_device_type(const char *id, void* data) {
-    if (!data) goto out;
+void resolve_device_type(struct active_device_info *device_info, void* data) {
+    if (!device_info || !data)
+        return;
 
+    const char *id = device_info->id;
     droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
 
     Device* dev;
@@ -699,7 +701,9 @@ DeviceType get_device_type(const char *id, void* data) {
 
     dev = mdnsMgr->GetDevice(id);
     if (dev) {
-        return DeviceType::MDNS;
+        device_info->ip = dev->address;
+        device_info->type = DeviceType::MDNS;
+        return;
     }
 
     dev = adbMgr->GetDevice(id);
@@ -709,15 +713,19 @@ DeviceType get_device_type(const char *id, void* data) {
             goto out;
         }
 
-        return DeviceType::ADB;
+        device_info->type = DeviceType::ADB;
+        return;
     }
 
     dev = iosMgr->GetDevice(id);
     if (dev) {
-        return DeviceType::IOS;
+        device_info->type = DeviceType::IOS;
+        return;
     }
+
     out:
-    return DeviceType::NONE;
+    device_info->type = DeviceType::NONE;
+    return;
 }
 
 static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *data) {
@@ -762,7 +770,7 @@ static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
         device_info->type = DeviceType::WIFI;
     }
     else {
-        device_info->type = get_device_type(device_info->id, data);
+        resolve_device_type(device_info, data);
     }
 
     if (device_info->type == DeviceType::NONE) {
@@ -946,7 +954,7 @@ static void plugin_defaults(obs_data_t *settings) {
     obs_data_set_default_bool(settings, OPT_USE_HW_ACCEL, true);
     obs_data_set_default_bool(settings, OPT_ENABLE_AUDIO, false);
     obs_data_set_default_bool(settings, OPT_DEACTIVATE_WNS, true);
-    obs_data_set_default_int(settings, OPT_CONNECT_PORT, 4747);
+    obs_data_set_default_int(settings, OPT_CONNECT_PORT, DEFAULT_PORT);
 }
 
 static const char *plugin_getname(void *data) {

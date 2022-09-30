@@ -1,5 +1,23 @@
+/*
+Copyright (C) 2022 DEV47APPS, github.com/dev47apps
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 2 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
 #include <stdlib.h>
+#include <QtWidgets/QLineEdit>
 #include <QtWidgets/QMessageBox>
+#include <QtWidgets/QDialogButtonBox>
 #include <QtGui/QFont>
 #include <QtSvg/QSvgRenderer>
 #include "AddDevice.h"
@@ -47,6 +65,7 @@ AddDevice::AddDevice(QWidget *parent) : QDialog(parent),
     ui->refresh_button->setVisible(false);
     ui->horizontalLayout1->addWidget(&loadingSvg);
 
+    refresh_count = 0;
     enable_audio = false;
     ui->enableAudio_checkBox->connect(ui->enableAudio_checkBox,
         &QCheckBox::stateChanged, [=] (int state) {
@@ -93,6 +112,8 @@ AddDevice::~AddDevice() {
 }
 
 void AddDevice::ShowHideDialog(int show) {
+    refresh_count = 0;
+
     if (show < 0) {
         show = !isVisible();
     }
@@ -105,6 +126,76 @@ void AddDevice::ShowHideDialog(int show) {
     } else {
         setVisible(false);
     }
+}
+
+void AddDevice::AddDeviceManual() {
+    QDialog dialog(this, Qt::WindowTitleHint);
+    QVBoxLayout form(&dialog);
+    QLineEdit nameInput(&dialog);
+    QLineEdit wifiInput(&dialog);
+
+    QString label0 = QString(obs_module_text("Device"));
+    form.addWidget(new QLabel(label0));
+    form.addWidget(&nameInput);
+
+    form.addWidget(new QLabel("WiFi IP"));
+    form.addWidget(&wifiInput);
+
+    QString enableAudio_label = QString(obs_module_text("EnableAudio"));
+    QString enableAudio_hint = QString(obs_module_text("EnableAudioHint"));
+
+    QCheckBox enableAudio_checkBox(enableAudio_label);
+    enableAudio_checkBox.setCursor(Qt::WhatsThisCursor);
+    enableAudio_checkBox.setToolTip(enableAudio_hint);
+    enableAudio_checkBox.setWhatsThis(enableAudio_hint);
+
+    form.addWidget(&enableAudio_checkBox);
+
+    QDialogButtonBox buttonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel,
+                               Qt::Horizontal, &dialog);
+    QObject::connect(&buttonBox, SIGNAL(accepted()), &dialog, SLOT(accept()));
+    QObject::connect(&buttonBox, SIGNAL(rejected()), &dialog, SLOT(reject()));
+    form.addSpacing(16);
+    form.addWidget(&buttonBox);
+
+    dialog.setWindowTitle(QString(obs_module_text("AddADevice")));
+    if (dialog.exec() != QDialog::Accepted) {
+        refresh_count --;
+        return;
+    }
+
+    const char *err = nullptr;
+    if (nameInput.text().isEmpty())
+        err = obs_module_text("NoName");
+
+    else if (wifiInput.text().isEmpty())
+        err = obs_module_text("NoWifiIP");
+
+    if (err) {
+        QString title = QString(obs_module_text("DroidCam"));
+        QString msg = QString(err);
+        QMessageBox mb(QMessageBox::Warning, title, msg,
+             QMessageBox::StandardButtons(QMessageBox::Ok), this);
+        mb.exec();
+        AddDeviceManual();
+        return;
+    }
+
+    QByteArray wifiIP = wifiInput.text().toUtf8();
+    auto info = (DeviceInfo *) bzalloc(sizeof(DeviceInfo));
+    info->id = opt_use_wifi;
+    info->ip = wifiIP.constData();
+    info->port = DEFAULT_PORT;
+    info->type = DeviceType::WIFI;
+    enable_audio = enableAudio_checkBox.checkState() == Qt::Checked;
+
+    // AddListEntry(name, info); <- alternate flow
+    QListWidgetItem item(phoneIcon, nameInput.text());
+    item.setData(Qt::UserRole, QVariant::fromValue((void*)info));
+    CreateNewSource(&item);
+
+    bfree(info);
+    enable_audio = ui->enableAudio_checkBox->checkState() == Qt::Checked;
 }
 
 void AddDevice::AddListEntry(const char *name, void* data) {
@@ -128,6 +219,11 @@ void AddDevice::ClearList() {
 }
 
 void AddDevice::ReloadList() {
+    if (refresh_count > 2) {
+        AddDeviceManual();
+        return;
+    }
+
     if (dummy_droidcam_source && dummy_properties) {
         if (thread && thread->isRunning())
             return;
@@ -141,6 +237,7 @@ void AddDevice::ReloadList() {
         ui->refresh_button->setVisible(false);
         ClearList();
         thread->start();
+        refresh_count ++;
     }
     else {
         elog("AddDevice UI: Trying to reload device list without dummy source: '%p' '%p'",
@@ -165,15 +262,14 @@ void ReloadThread::run() {
             if (!(name && value))
                 continue;
 
-            if (strncmp(value, opt_use_wifi, sizeof(OPT_DEVICE_ID_WIFI)-1) == 0)
+            if (strncmp(value, opt_use_wifi, strlen(opt_use_wifi)) == 0)
                 continue;
-
 
             auto info = (DeviceInfo *) bzalloc(sizeof(DeviceInfo));
             info->id = value;
+            info->port = DEFAULT_PORT;
             info->ip = "";
-            info->port = 4747;
-            info->type = get_device_type(info->id, parent->dummy_source_priv_data);
+            resolve_device_type(info, parent->dummy_source_priv_data);
             if (info->type != DeviceType::NONE && parent->isVisible())
                 emit AddListEntry(name, info);
         }
@@ -232,27 +328,35 @@ void AddDevice::CreateNewSource(QListWidgetItem *item) {
         if (data && sid && name && strcmp(sid, DROIDCAM_OBS_ID) == 0) {
             auto item = (QListWidgetItem*) data;
             if (item->text() == QString(name)) {
-                ilog("existing source name %s matched", name);
-                goto found;
-            }
-
-            const char *id;
-            obs_data_t *settings = obs_source_get_settings(source);
-            if (settings) {
-                id = obs_data_get_string(settings, OPT_ACTIVE_DEV_ID);
-                obs_data_release(settings);
-            } else {
-                id = NULL;
-            }
-
-            DeviceInfo* device_info = (DeviceInfo*) item->data(Qt::UserRole).value<void*>();
-            if (id && device_info && device_info->id && strcmp(id, device_info->id) == 0) {
-                ilog("existing source id %s matched", id);
+                ilog("existing source '%s' matched", name);
                 found:
                 // replace the data to indicate a duplicate was found
                 item->setData(Qt::UserRole, QVariant::fromValue((void*)source));
                 return false;
             }
+
+            DeviceInfo* device_info = (DeviceInfo*) item->data(Qt::UserRole).value<void*>();
+            obs_data_t *settings = obs_source_get_settings(source);
+            if (!settings || !device_info)
+                return true;
+
+            const char *id = obs_data_get_string(settings, OPT_ACTIVE_DEV_ID);
+            const char *ip = obs_data_get_string(settings, OPT_CONNECT_IP);
+            const DeviceType type = (DeviceType) obs_data_get_int(settings, OPT_ACTIVE_DEV_TYPE);
+            obs_data_release(settings);
+
+            // Cross-check Wifi and MDNS devices by target IP
+            if ((device_info->type == DeviceType::WIFI || device_info->type == DeviceType::MDNS)
+                && (type == DeviceType::WIFI || type == DeviceType::MDNS))
+            {
+                dlog("%s ip=%s against ip %s", name, ip, device_info->ip);
+                if (ip && strncmp(ip, device_info->ip, 64) == 0)
+                    goto found;
+            }
+
+            dlog("%s id=%s against id %s", name, id, device_info->id);
+            if (type != DeviceType::WIFI && id && device_info->id && strncmp(id, device_info->id, 256) == 0)
+                goto found;
         }
 
         return true;

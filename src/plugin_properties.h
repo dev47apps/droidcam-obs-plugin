@@ -1,3 +1,4 @@
+// Copyright (C) 2022 DEV47APPS, github.com/dev47apps
 #pragma once
 #define OPT_VERSION           "version"
 #define OPT_CONNECT_IP        "wifi_ip"
@@ -33,6 +34,7 @@
 #define AUDIO_REQ "GET /v1/audio.2"
 #define VIDEO_REQ "GET /v4/video/%s/%s/port/%d/client/%s/nonce/%d/"
 
+#define DEFAULT_PORT 4747
 #define ADB_LOCALHOST_IP "127.0.0.1"
 
 #define DROIDCAM_SERVICE_NAME "_droidcamobs._tcp.local."
@@ -71,7 +73,7 @@ static const char* Resolutions[] = {
     "1920x1080",
 };
 
-DeviceType get_device_type(const char *id, void* data);
+void resolve_device_type(struct active_device_info*, void* data);
 
 static inline int getResolutionIndex(const char* resolution) {
     for (size_t i = 0; i < ARRAY_LEN(Resolutions); i++) {

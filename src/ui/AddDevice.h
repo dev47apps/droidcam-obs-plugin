@@ -1,3 +1,4 @@
+// Copyright (C) 2022 DEV47APPS, github.com/dev47apps
 #pragma once
 
 #include <QtCore/QThread>
@@ -17,6 +18,7 @@ signals:
 public slots:
     // Event handlers go here
     void AddListEntry(const char *name, void* data);
+    void AddDeviceManual();
     void ReloadFinish();
     void ReloadList();
     void ClearList();
@@ -28,6 +30,7 @@ public:
     void *dummy_properties;
     void *dummy_source_priv_data;
     bool enable_audio;
+    int refresh_count;
     std::unique_ptr<Ui_AddDeviceDC> ui;
     std::unique_ptr<QThread> thread;
     ~AddDevice();
