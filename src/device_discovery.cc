@@ -1,5 +1,5 @@
 /*
-Copyright (C) 2021 DEV47APPS, github.com/dev47apps
+Copyright (C) 2022 DEV47APPS, github.com/dev47apps
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -26,6 +26,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "net.h"
 #include "command.h"
 #include "device_discovery.h"
+#include "plugin_properties.h"
 
 bool process_check_success(process_t proc, const char *name) {
     if (proc == PROCESS_NONE) {
@@ -339,7 +340,7 @@ void AdbMgr::ClearForwards(Device *dev) {
 
 // MARK: USBMUX
 
-USBMux::USBMux() {
+USBMux::USBMux() : iproxy(this) {
     hModuleUsbmux = NULL;
     hModuleIDevice = NULL;
     usbmuxd_device_list = NULL;
@@ -475,9 +476,16 @@ void USBMux::GetModel(Device* dev) {
     char* name = NULL;
     lerr = lockdownd_get_device_name(lockdown, &name);
     if (name) {
+        // XXX: skip the serial with iPhones
+        #if 0
         int max = (int)(sizeof(Device::model) - strlen(suffix) - 6 - 8);
         snprintf(dev->model, sizeof(Device::model), "%.*s [%s] (%.*s)",
             max, name, suffix, (int) sizeof(Device::serial)/2, dev->serial);
+        #else
+        int max = (int)(sizeof(Device::model) - strlen(suffix) - 4);
+        snprintf(dev->model, sizeof(Device::model), "%.*s [%s]",
+            max, name, suffix);
+        #endif
         free(name);
     }
     else {
@@ -551,7 +559,7 @@ void USBMux::DoReload(void) {
 #endif // __APPLE__
 }
 
-int USBMux::Connect(Device* dev, int port) {
+socket_t USBMux::Connect(Device* dev, int port, int* iproxy_port) {
     dlog("USBMUX Connect: handle=%d, port=%d", dev->handle, port);
 
 #ifdef __APPLE__
@@ -569,6 +577,9 @@ int USBMux::Connect(Device* dev, int port) {
 
     set_nonblock(rc, 0);
     set_recv_timeout(rc, 5);
+
+    *iproxy_port = iproxy.Start(dev, port);
+
     return rc;
 
 #endif // __APPLE__

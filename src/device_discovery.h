@@ -66,6 +66,22 @@ public:
     Device* GetDevice(const char* serial, size_t length = sizeof(Device::serial));
 };
 
+struct Proxy {
+    DeviceDiscovery* discovery_mgr;
+    volatile Device *proxy_device;
+    volatile socket_t proxy_sock;
+
+    int port_local;
+    int port_remote;
+    int thread_active;
+
+    pthread_t pthr;
+    friend void *proxy_run(void *data);
+
+    Proxy(DeviceDiscovery*);
+    ~Proxy();
+    int Start(Device*, int remote_port);
+};
 
 // MARK: WiFi MDNS
 struct MDNS : DeviceDiscovery {
@@ -133,11 +149,12 @@ struct USBMux : DeviceDiscovery {
     void* usbmuxd_device_list;
 #else
     usbmuxd_device_info_t* usbmuxd_device_list;
+    Proxy iproxy;
 #endif
 
     USBMux();
     ~USBMux();
     void DoReload();
     void GetModel(Device* dev);
-    int Connect(Device* dev, int port);
+    socket_t Connect(Device* dev, int port, int* iproxy_port);
 };

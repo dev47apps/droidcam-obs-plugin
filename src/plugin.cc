@@ -125,7 +125,7 @@ static socket_t connect(struct droidcam_obs_plugin *plugin) {
             }
 
             socket_t rc = net_connect(localhost_ip, plugin->usb_port);
-            if (rc > 0) return rc;
+            if (rc != INVALID_SOCKET) return rc;
 
             elog("adb connect failed");
             adbMgr->ClearForwards(dev);
@@ -139,7 +139,7 @@ static socket_t connect(struct droidcam_obs_plugin *plugin) {
     if (device_info->type == DeviceType::IOS) {
         dev = iosMgr->GetDevice(device_info->id);
         if (dev) {
-            return iosMgr->Connect(dev, device_info->port);
+            return iosMgr->Connect(dev, device_info->port, &plugin->usb_port);
         }
 
         iosMgr->Reload();
@@ -388,19 +388,18 @@ static void *video_thread(void *data) {
             dlog("starting video via socket %d", sock);
 
             // xxx - Is there a nicer way ???
-            int port = plugin->device_info.port;
-            if (plugin->device_info.type == DeviceType::ADB) {
-                port = plugin->usb_port;
-            } else {
-                port = plugin->device_info.port;
+            int port = (plugin->device_info.type == DeviceType::ADB
+                    || plugin->device_info.type == DeviceType::IOS)
+                ? plugin->usb_port
+                : plugin->device_info.port;
+
+            if (port > 0) {
+                snprintf(remote_url, sizeof(remote_url), "http://%s:%d", plugin->device_info.ip, port);
+                dlog("remote_url=%s", remote_url); // FIMXE testing
+                obs_data_t *settings = obs_source_get_settings(plugin->source);
+                obs_data_set_string(settings, "remote_url", remote_url);
+                obs_data_release(settings);
             }
-
-            snprintf(remote_url, sizeof(remote_url), "http://%s:%d", plugin->device_info.ip, port);
-            dlog("remote_url=%s", remote_url); // FIMXE testing
-
-            obs_data_t *settings = obs_source_get_settings(plugin->source);
-            obs_data_set_string(settings, "remote_url", remote_url);
-            obs_data_release(settings);
 
             droidcam_signal(plugin->source, "droidcam_connect");
             continue;

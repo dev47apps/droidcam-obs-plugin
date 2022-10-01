@@ -74,6 +74,63 @@ int set_recv_timeout(socket_t sock, int tv_sec) {
 }
 
 socket_t
+net_listen(const char* addr, uint16_t port) {
+    socket_t sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (sock == INVALID_SOCKET) {
+        WSAErrno();
+        elog("socket(): %s", strerror(errno));
+        return INVALID_SOCKET;
+    }
+
+    struct sockaddr_in sa = {0};
+    sa.sin_family = AF_INET;
+    sa.sin_addr.s_addr = inet_addr(addr);
+    sa.sin_port = htons(port);
+
+    const int on = 1;
+    setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, (char*)&on, sizeof(int));
+    #if _WIN32
+    setsockopt(sock, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, (char*)&on, sizeof(int));
+    #endif
+    set_nonblock(sock, on);
+
+    if (bind(sock, (struct sockaddr *) &sa, sizeof(sa)) < 0) {
+        WSAErrno();
+        elog("bind(): %s", strerror(errno));
+        goto fail;
+    }
+
+    if (listen(sock, 8) < 0) {
+        WSAErrno();
+        elog("listen(): %s", strerror(errno));
+        fail:
+        net_close(sock);
+        return INVALID_SOCKET;
+    }
+
+    dlog("created server on %s:%d", addr, net_listen_port(sock));
+    return sock;
+}
+
+int
+net_listen_port(socket_t sock) {
+    struct sockaddr_in sa;
+    socklen_t len = sizeof(sa);
+    if (getsockname(sock, (struct sockaddr *)&sa, &len) < 0) {
+        WSAErrno();
+        elog("getsockname(): %s", strerror(errno));
+        return 0;
+    }
+
+    return ntohs(sa.sin_port);
+}
+
+socket_t
+net_accept(socket_t sock) {
+    return accept(sock, NULL, 0);
+}
+
+socket_t
 net_connect(struct addrinfo *addr, uint16_t port) {
     struct sockaddr* ai_addr = addr->ai_addr;
     void *in_addr;
@@ -103,6 +160,7 @@ net_connect(struct addrinfo *addr, uint16_t port) {
 
     socket_t sock = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
     if (sock == INVALID_SOCKET) {
+        WSAErrno();
         elog("socket(): %s", strerror(errno));
         return INVALID_SOCKET;
     }
@@ -125,13 +183,15 @@ net_connect(struct addrinfo *addr, uint16_t port) {
     if (WSAGetLastError() != WSAEWOULDBLOCK)
         goto ERROR_OUT;
 #else
-    if (!(errno == EAGAIN || errno == EWOULDBLOCK || errno == EINPROGRESS)) {
+    if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINPROGRESS)) {
+        WSAErrno();
         elog("connect(): %s", strerror(errno));
         goto ERROR_OUT;
     }
 #endif
 
     if (select(sock+1, NULL, &set, NULL, &timeout) <= 0) {
+        WSAErrno();
         elog("connect timeout/failed: %s", strerror(errno));
         goto ERROR_OUT;
     }
@@ -155,14 +215,15 @@ net_connect(const char* host, uint16_t port) {
     hints.ai_protocol = IPPROTO_TCP;
 
     if (getaddrinfo(host, NULL, &hints, &addrs) != 0) {
-        elog("getaddrinfo failed: %s", strerror(errno));
+        WSAErrno();
+        elog("getaddrinfo failed (%d): %s", errno, strerror(errno));
         return INVALID_SOCKET;
     }
 
     addr = addrs;
     do {
         socket_t sock = net_connect(addr, port);
-        if (sock > 0) {
+        if (sock != INVALID_SOCKET) {
             int len = 65536 * 4;
             setsockopt(sock, SOL_SOCKET, SO_RCVBUF, (char *) &len, sizeof(int));
             set_recv_timeout(sock, 5);
