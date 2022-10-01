@@ -141,7 +141,7 @@ static socket_t connect(struct droidcam_obs_plugin *plugin) {
         goto out;
     }
 
-out:
+    out:
     return INVALID_SOCKET;
 }
 
@@ -177,7 +177,7 @@ read_frame(Decoder *decoder, socket_t sock, int *has_config)
     size_t len, config_len = 0;
     uint64_t pts;
 
-AGAIN:
+    AGAIN:
     r = net_recv_all(sock, header, HEADER_SIZE);
     if (r != HEADER_SIZE) {
         elog("read header recv returned %ld", r);
@@ -267,16 +267,16 @@ static void *video_decode_thread(void *data) {
         if (got_output) {
             plugin->obs_video_frame.timestamp = data_packet->pts * 1000;
             //if (flip) plugin->obs_video_frame.flip = !plugin->obs_video_frame.flip;
-    #if 0
+            #if 0
             dlog("output video: %dx%d %lu",
                 plugin->obs_video_frame.width,
                 plugin->obs_video_frame.height,
                 plugin->obs_video_frame.timestamp);
-    #endif
+            #endif
             obs_source_output_video2(plugin->source, &plugin->obs_video_frame);
         }
 
-LOOP:
+        LOOP:
         decoder->push_empty_packet(data_packet);
     }
 
@@ -326,7 +326,7 @@ recv_video_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
     if (decoder->failed) {
         dlog("discarding frame.. decoder failed");
         decoder->push_empty_packet(data_packet);
-FAIL_OUT:
+        FAIL_OUT:
         return true;
     }
 
@@ -372,7 +372,7 @@ static void *video_thread(void *data) {
                 net_close(sock);
                 sock = INVALID_SOCKET;
 
-SLOW_LOOP:
+                SLOW_LOOP:
                 os_sleep_ms(MILLI_SEC * 2);
                 goto LOOP;
             }
@@ -390,7 +390,7 @@ SLOW_LOOP:
             droidcam_signal(plugin->source, "droidcam_disconnect");
         }
 
-LOOP:
+        LOOP:
         if (sock != INVALID_SOCKET) {
             dlog("closing active video socket %d", sock);
             net_close(sock);
@@ -458,7 +458,7 @@ do_audio_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
     }
 
     if (decoder->failed) {
-    FAILED:
+        FAILED:
         dlog("discarding audio frame.. decoder failed");
         decoder->push_empty_packet(data_packet);
         return true;
@@ -473,14 +473,14 @@ do_audio_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
 
     if (got_output) {
         plugin->obs_audio_frame.timestamp = os_gettime_ns(); // data_packet->pts * 1000;
-#if 0
+        #if 0
         dlog("output audio: %d frames: %d HZ, Fmt %d, Chan %d,  pts %lu",
             plugin->obs_audio_frame.frames,
             plugin->obs_audio_frame.samples_per_sec,
             plugin->obs_audio_frame.format,
             plugin->obs_audio_frame.speakers,
             plugin->obs_audio_frame.timestamp);
-#endif
+        #endif
         obs_source_output_audio(plugin->source, &plugin->obs_audio_frame);
     }
 
@@ -523,7 +523,7 @@ static void *audio_thread(void *data) {
                 net_close(sock);
                 sock = INVALID_SOCKET;
 
-SLOW_LOOP:
+                SLOW_LOOP:
                 os_sleep_ms(MILLI_SEC * 2);
                 goto LOOP;
             }
@@ -538,7 +538,7 @@ SLOW_LOOP:
             plugin->audio_running = false;
         }
 
-LOOP:
+        LOOP:
         if (sock != INVALID_SOCKET) {
             dlog("closing active audio socket %d", sock);
             net_close(sock);
@@ -792,7 +792,7 @@ static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
         plugin->video_format, VideoFormatNames[plugin->video_format][1],
         plugin->video_resolution, Resolutions[plugin->video_resolution]);
 
-out:
+    out:
     obs_property_set_enabled(cp, true);
     if (settings) obs_data_release(settings);
     return true;
