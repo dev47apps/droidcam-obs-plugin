@@ -19,7 +19,6 @@
 #include "plugin.h"
 #include "ffmpeg_decode.h"
 #include <obs-ffmpeg-compat.h>
-#include <libavutil/channel_layout.h>
 
 #if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(58, 9, 100)
 #error LIBAVCODEC VERSION 58,9,100 REQUIRED
@@ -46,7 +45,7 @@ enum AVHWDeviceType hw_device_list[] = {
 	AV_HWDEVICE_TYPE_NONE,
 };
 
-static AVPixelFormat has_hw_type(const AVCodec *c, enum AVHWDeviceType type)
+static AVPixelFormat has_hw_type(AVCodec *c, enum AVHWDeviceType type)
 {
 	for (int i = 0;; i++) {
 		const AVCodecHWConfig *config = avcodec_get_hw_config(c, i);
@@ -213,26 +212,19 @@ static inline enum video_format convert_pixel_format(int f)
 }
 
 static enum video_colorspace
-convert_color_space(enum AVColorSpace s, enum AVColorTransferCharacteristic trc,
-		    enum AVColorPrimaries color_primaries)
+convert_color_space(enum AVColorSpace s, enum AVColorTransferCharacteristic trc)
 {
 	switch (s) {
 	case AVCOL_SPC_BT709:
 		return (trc == AVCOL_TRC_IEC61966_2_1) ? VIDEO_CS_SRGB : VIDEO_CS_709;
+
 	case AVCOL_SPC_FCC:
 	case AVCOL_SPC_BT470BG:
 	case AVCOL_SPC_SMPTE170M:
 	case AVCOL_SPC_SMPTE240M:
 		return VIDEO_CS_601;
-	case AVCOL_SPC_BT2020_NCL:
-		return (trc == AVCOL_TRC_ARIB_STD_B67) ? VIDEO_CS_2100_HLG
-						       : VIDEO_CS_2100_PQ;
 	default:
-		return (color_primaries == AVCOL_PRI_BT2020)
-			       ? ((trc == AVCOL_TRC_ARIB_STD_B67)
-					  ? VIDEO_CS_2100_HLG
-					  : VIDEO_CS_2100_PQ)
-			       : VIDEO_CS_DEFAULT;
+		return VIDEO_CS_DEFAULT;
 	}
 }
 
@@ -364,42 +356,16 @@ GOT_FRAME:
 		obs_frame->linesize[i] = out_frame->linesize[i];
 	}
 
-	if (obs_frame->format == VIDEO_FORMAT_NONE) {
-		obs_frame->format = convert_pixel_format(out_frame->format);
-		if (obs_frame->format == VIDEO_FORMAT_NONE)
-			return false;
-
-		switch (out_frame->color_trc) {
-		case AVCOL_TRC_BT709:
-		case AVCOL_TRC_GAMMA22:
-		case AVCOL_TRC_GAMMA28:
-		case AVCOL_TRC_SMPTE170M:
-		case AVCOL_TRC_SMPTE240M:
-		case AVCOL_TRC_IEC61966_2_1:
-			obs_frame->trc = VIDEO_TRC_SRGB;
-			break;
-		case AVCOL_TRC_SMPTE2084:
-			obs_frame->trc = VIDEO_TRC_PQ;
-			break;
-		case AVCOL_TRC_ARIB_STD_B67:
-			obs_frame->trc = VIDEO_TRC_HLG;
-			break;
-		default:
-			obs_frame->trc = VIDEO_TRC_DEFAULT;
-		}
-	}
-
 	enum video_range_type range =
 		(out_frame->color_range == AVCOL_RANGE_JPEG)
 		? VIDEO_RANGE_FULL : VIDEO_RANGE_PARTIAL;
 
 	if (range != obs_frame->range) {
 		const enum video_colorspace cs = convert_color_space(
-			out_frame->colorspace, out_frame->color_trc,
-			out_frame->color_primaries);
+			out_frame->colorspace, out_frame->color_trc);
 
-		video_format_get_parameters_for_format(
-			cs, range, obs_frame->format, obs_frame->color_matrix,
+		video_format_get_parameters(
+			cs, range, obs_frame->color_matrix,
 			obs_frame->color_range_min, obs_frame->color_range_max);
 
 		obs_frame->range = range;
@@ -408,6 +374,12 @@ GOT_FRAME:
 	obs_frame->width = out_frame->width;
 	obs_frame->height = out_frame->height;
 	obs_frame->flip = false;
+
+	if (obs_frame->format == VIDEO_FORMAT_NONE) {
+		obs_frame->format = convert_pixel_format(out_frame->format);
+		if (obs_frame->format == VIDEO_FORMAT_NONE)
+			return false;
+	}
 
 	*got_output = true;
 	return true;

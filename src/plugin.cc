@@ -1,5 +1,5 @@
 /*
-Copyright (C) 2022 DEV47APPS, github.com/dev47apps
+Copyright (C) 2021 DEV47APPS, github.com/dev47apps
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -40,7 +40,7 @@ AddDevice* addDevUI = NULL;
 #include "buffer_util.h"
 #include "device_discovery.h"
 
-#define VERSION_TEXT "160"
+#define VERSION_TEXT "151"
 #define FPS 25
 #define MILLI_SEC 1000
 #define NANO_SEC  1000000000
