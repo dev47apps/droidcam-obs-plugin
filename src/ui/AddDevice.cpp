@@ -379,6 +379,10 @@ void AddDevice::CreateNewSource(QListWidgetItem *item) {
 
         if (!removeSource((obs_source_t*)data_out)) {
             elog("AddDevice UI: Error removing source for replacement!");
+            QString msg = QString(obs_module_text("ErrorRemove"));
+            QMessageBox mb(QMessageBox::Information, title, msg,
+                QMessageBox::StandardButtons(QMessageBox::Ok), this);
+            mb.exec();
             return;
         }
     }
@@ -394,6 +398,7 @@ void AddDevice::CreateNewSource(QListWidgetItem *item) {
     obs_data_set_string(settings, OPT_ACTIVE_DEV_ID, device_info->id);
     obs_data_set_string(settings, OPT_ACTIVE_DEV_IP, device_info->ip);
     obs_data_set_string(settings, OPT_WIFI_IP      , device_info->ip);
+    // TODO: obs_data_set_int(settings, OPT_APP_PORT, ??);
 
     obs_get_video_info(&ovi);
     snprintf(resolution, sizeof(resolution), "%dx%d", ovi.base_width, ovi.base_height);
@@ -401,6 +406,7 @@ void AddDevice::CreateNewSource(QListWidgetItem *item) {
 
     obs_data_set_bool(settings, OPT_ENABLE_AUDIO, enable_audio);
     obs_data_set_bool(settings, OPT_IS_ACTIVATED, true);
+    obs_data_set_bool(settings, OPT_DEACTIVATE_WNS, true);
 
     obs_source_t *source = obs_source_create(DROIDCAM_OBS_ID, device_name, settings, nullptr);
     if (source) {
