@@ -379,6 +379,10 @@ void AddDevice::CreateNewSource(QListWidgetItem *item) {
 
         if (!removeSource((obs_source_t*)data_out)) {
             elog("AddDevice UI: Error removing source for replacement!");
+            QString msg = QString(obs_module_text("ErrorRemove"));
+            QMessageBox mb(QMessageBox::Information, title, msg,
+                QMessageBox::StandardButtons(QMessageBox::Ok), this);
+            mb.exec();
             return;
         }
     }
