@@ -40,7 +40,7 @@ AddDevice* addDevUI = NULL;
 #include "buffer_util.h"
 #include "device_discovery.h"
 
-#define VERSION_TEXT "151"
+#define VERSION_TEXT "160"
 #define FPS 25
 #define MILLI_SEC 1000
 #define NANO_SEC  1000000000
