@@ -388,13 +388,19 @@ USBMux::USBMux() {
 
 #ifdef __linux__
     // Check for usbmuxd presence
-    hModuleUsbmux = dlopen("libusbmuxd.so", RTLD_LAZY);
+    const char *USBMUXD_VARIANTS[] = {
+        "libusbmuxd.so",
+        "libusbmuxd.so.4",
+        "libusbmuxd.so.6",
+        "libusbmuxd-2.0.so",
+        "libusbmuxd-2.0.so.6",
+    };
 
-    if (!hModuleUsbmux)
-        hModuleUsbmux = dlopen("libusbmuxd.so.4", RTLD_LAZY);
-
-    if (!hModuleUsbmux)
-        hModuleUsbmux = dlopen("libusbmuxd-2.0.so", RTLD_LAZY);
+    for (size_t i = 0; i < ARRAY_LEN(USBMUXD_VARIANTS); i++) {
+        dlog("trying %s", USBMUXD_VARIANTS[i]);
+        if ((hModuleUsbmux = dlopen(USBMUXD_VARIANTS[i], RTLD_LAZY)) != NULL)
+            break;
+    }
 
     if (!hModuleUsbmux) {
         elog("usbmuxd not found, iOS USB support not available");

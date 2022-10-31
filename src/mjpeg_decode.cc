@@ -37,7 +37,7 @@ bool MJpegDecoder::init(void) {
 
     tj = tjInitDecompress();
     if (!tj) {
-        elog("error creating mjpeg decoder");
+        elog("error creating mjpeg decoder: %s", tjGetErrorStr2(NULL));
         return false;
     }
 

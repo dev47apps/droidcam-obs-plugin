@@ -1,17 +1,16 @@
-# Copyright (C) 2021 DEV47APPS, github.com/dev47apps
+# Copyright (C) 2022 DEV47APPS, github.com/dev47apps
 
-DATA_DIR = data
-BUILD_DIR = build
+DATA_DIR  ?= data
+BUILD_DIR ?= build
+LIB_DLL   ?= $(BUILD_DIR)/droidcam-obs.so
 
-RM       = rm -f
-CXXFLAGS += -std=c++11 -Wall -fPIC
-INCLUDES = -Isrc/
-LDD_DIRS =
-LDD_LIBS =
-LDD_FLAG =
-LIB_DLL  = $(BUILD_DIR)/droidcam-obs.so
-STATIC   =
-SRC      = $(shell ls src/*.cc src/sys/unix/*.cc)
+CXXFLAGS += -std=c++17 -Wall -fPIC
+INCLUDES += -Isrc/
+STATIC   +=
+LDD_DIRS +=
+LDD_LIBS +=
+LDD_FLAG +=
+SRC      += $(shell ls src/*.cc src/sys/unix/*.cc)
 
 ifeq ($(OS),Windows_NT)
 all:
@@ -60,7 +59,7 @@ LDD_LIBS += -lobs
 LDD_FLAG += -shared
 
 run: debug
-	rm ~/.config/obs-studio/logs/* && obs
+	obs
 endif
 
 
