@@ -58,6 +58,7 @@ endif
 
 INCLUDES += -I$(IMOBILEDEV_DIR)/include
 INCLUDES += -I$(JPEG_DIR)/include
+INCLUDES += -I/usr/include/ffmpeg
 INCLUDES += -I/usr/include/obs
 
 LDD_LIBS += -lobs
@@ -72,11 +73,11 @@ endif
 ifeq ($(UNAME),Darwin)
 
 # Variables with ?= can be overridden
-# Example: `OBS_DIR=/tmp/obs-26.0 ARCH=arm64 make `
+# Example: `ARCH=arm64 make `
 
 ARCH       ?= x86_64
-DEPS_DIR   ?= ../obs-deps
-OBS_DIR    ?= ../obs-studio-25.0.8
+DEPS_DIR   ?= ../obs-deps25
+SRC_DIR    ?= $(DEPS_DIR)/src
 FFMPEG_DIR ?= $(DEPS_DIR)
 QT_DIR     ?= /usr/local/opt/qt5
 JPEG_DIR   ?= /usr/local/opt/libjpeg-turbo
@@ -90,7 +91,7 @@ CXXFLAGS += -target $(ARCH)-apple-darwin
 # INCLUDES += -I$(QT_DIR)/include/QtWidgets
 INCLUDES += -I$(JPEG_DIR)/include
 INCLUDES += -I$(FFMPEG_DIR)/include
-INCLUDES += -I$(OBS_DIR)/UI -I$(OBS_DIR)/libobs
+INCLUDES += -I$(SRC_DIR)/UI -I$(SRC_DIR)/libobs
 
 LDD_DIRS += -L$(DEPS_DIR)/lib
 LDD_DIRS += -L$(JPEG_DIR)/lib
