@@ -405,6 +405,7 @@ void AddDevice::CreateNewSource(QListWidgetItem *item) {
 
     obs_data_set_bool(settings, OPT_ENABLE_AUDIO, enable_audio);
     obs_data_set_bool(settings, OPT_IS_ACTIVATED, true);
+    obs_data_set_bool(settings, OPT_DEACTIVATE_WNS, true);
 
     obs_source_t *source = obs_source_create(DROIDCAM_OBS_ID, device_name, settings, nullptr);
     if (source) {
