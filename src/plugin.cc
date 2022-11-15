@@ -116,14 +116,12 @@ static socket_t connect(struct droidcam_obs_plugin *plugin) {
                 plugin->usb_port = port_start;
             }
             else if (plugin->usb_port > (port_start + 8)) {
-                elog("warning: excessive adb port usage!");
                 plugin->usb_port = port_start;
                 adbMgr->ClearForwards(dev);
             }
 
             dlog("ADB: mapping %d -> %d\n", plugin->usb_port, device_info->port);
             if (!adbMgr->AddForward(dev, plugin->usb_port, device_info->port)) {
-                elog("adb_forward failed");
                 plugin->usb_port++;
                 goto out;
             }
@@ -131,7 +129,6 @@ static socket_t connect(struct droidcam_obs_plugin *plugin) {
             socket_t rc = net_connect(localhost_ip, plugin->usb_port);
             if (rc != INVALID_SOCKET) return rc;
 
-            elog("adb connect failed");
             adbMgr->ClearForwards(dev);
             goto out;
         }
