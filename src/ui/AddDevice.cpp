@@ -15,11 +15,11 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include <stdlib.h>
-#include <QtWidgets/QLineEdit>
-#include <QtWidgets/QMessageBox>
-#include <QtWidgets/QDialogButtonBox>
-#include <QtGui/QFont>
-#include <QtSvg/QSvgRenderer>
+#include <QLineEdit>
+#include <QMessageBox>
+#include <QDialogButtonBox>
+#include <QFont>
+#include <QSvgRenderer>
 #include "AddDevice.h"
 
 #include "plugin.h"
@@ -395,10 +395,11 @@ void AddDevice::CreateNewSource(QListWidgetItem *item) {
     DeviceInfo* device_info = (DeviceInfo *) data;
     obs_data_t *settings = obs_data_create();
     obs_data_set_int(settings, OPT_ACTIVE_DEV_TYPE, (int) device_info->type);
+    obs_data_set_int(settings, OPT_APP_PORT       , device_info->port);
+
     obs_data_set_string(settings, OPT_ACTIVE_DEV_ID, device_info->id);
     obs_data_set_string(settings, OPT_ACTIVE_DEV_IP, device_info->ip);
     obs_data_set_string(settings, OPT_WIFI_IP      , device_info->ip);
-    // TODO: obs_data_set_int(settings, OPT_APP_PORT, ??);
 
     obs_get_video_info(&ovi);
     snprintf(resolution, sizeof(resolution), "%dx%d", ovi.base_width, ovi.base_height);

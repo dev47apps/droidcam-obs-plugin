@@ -18,18 +18,22 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <util/threading.h>
 #include <util/platform.h>
 
-#ifdef DROIDCAM_OVERRIDE
+#if DROIDCAM_OVERRIDE
 #define ENABLE_GUI 1
 #endif
 
 #if ENABLE_GUI
-#include <QtWidgets/QAction>
-#include <QtWidgets/QMainWindow>
-#include <QtWidgets/QMessageBox>
-#include "AddDevice.h"
+#include <QAction>
+#include <QMainWindow>
+#include <QMessageBox>
 #include "obs-frontend-api.h"
+QMainWindow *main_window = NULL;
 
+#if DROIDCAM_OVERRIDE
+#include "AddDevice.h"
 AddDevice* addDevUI = NULL;
+#endif
+
 #endif
 
 #include "plugin.h"
@@ -150,7 +154,7 @@ static socket_t connect(struct droidcam_obs_plugin *plugin) {
     return INVALID_SOCKET;
 }
 
-#ifdef DROIDCAM_OVERRIDE
+#if DROIDCAM_OVERRIDE
 static const char *droidcam_signals[] = {
     "void droidcam_connect(ptr source)",
     "void droidcam_disconnect(ptr source)",
@@ -831,7 +835,7 @@ static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
             QString title = QString(obs_module_text("DroidCam"));
             QString msg = QString(obs_module_text("NoWifiIP"));
             QMessageBox mb(QMessageBox::Information, title, msg,
-                QMessageBox::StandardButtons(QMessageBox::Ok), nullptr);
+                QMessageBox::StandardButtons(QMessageBox::Ok), main_window);
             mb.exec();
             #endif
 
@@ -1000,11 +1004,11 @@ static obs_properties_t *plugin_properties(void *data) {
 
     obs_property_list_add_string(cp, TEXT_USE_WIFI, opt_use_wifi);
     obs_properties_add_button(ppts, OPT_REFRESH, TEXT_REFRESH, refresh_clicked);
+    cp = obs_properties_add_button(ppts, OPT_CONNECT, TEXT_CONNECT, connect_clicked);
 
     obs_properties_add_text(ppts, OPT_WIFI_IP, "WiFi IP", OBS_TEXT_DEFAULT);
     obs_properties_add_int(ppts, OPT_APP_PORT, "DroidCam Port", 1, 65535, 1);
 
-    cp = obs_properties_add_button(ppts, OPT_CONNECT, TEXT_CONNECT, connect_clicked);
     obs_properties_add_bool(ppts, OPT_ENABLE_AUDIO, TEXT_ENABLE_AUDIO);
     // obs_properties_add_bool(ppts, OPT_SYNC_AV, TEXT_SYNC_AV);
     obs_properties_add_bool(ppts, OPT_DEACTIVATE_WNS, TEXT_DWNS);
@@ -1031,7 +1035,7 @@ static void plugin_defaults(obs_data_t *settings) {
 
 static const char *plugin_getname(void *data) {
     UNUSED_PARAMETER(data);
-    #ifdef DROIDCAM_OVERRIDE
+    #if DROIDCAM_OVERRIDE
     return "DroidCam";
     #else
     return obs_module_text("DroidCamOBS");
@@ -1058,7 +1062,7 @@ bool obs_module_load(void) {
     droidcam_obs_info.show         = plugin_show;
     droidcam_obs_info.hide         = plugin_hide;
     droidcam_obs_info.update       = plugin_update;
-    #ifdef DROIDCAM_OVERRIDE
+    #if DROIDCAM_OVERRIDE
     droidcam_obs_info.icon_type    = OBS_ICON_TYPE_CAMERA;
     #else
     droidcam_obs_info.icon_type    = OBS_ICON_TYPE_CUSTOM;
@@ -1067,18 +1071,25 @@ bool obs_module_load(void) {
     droidcam_obs_info.get_properties = plugin_properties;
     obs_register_source(&droidcam_obs_info);
 
-    #ifdef DROIDCAM_OVERRIDE
+    #if DROIDCAM_OVERRIDE
     signal_handler_add_array(obs_get_signal_handler(), droidcam_signals);
-    QMainWindow *main_window = (QMainWindow *)obs_frontend_get_main_window();
+    #endif
+
+    #if ENABLE_GUI
+    main_window = (QMainWindow *)obs_frontend_get_main_window();
+    #endif
+
+    #if DROIDCAM_OVERRIDE
     obs_frontend_push_ui_translation(obs_module_get_string);
     addDevUI = new AddDevice(main_window);
     obs_frontend_pop_ui_translation();
 
-    QAction *tools_menu_action = (QAction*)obs_frontend_add_tools_menu_qaction(plugin_getname(0));
+    QAction *tools_menu_action = (QAction*)obs_frontend_add_tools_menu_qaction("DroidCam");
     tools_menu_action->connect(tools_menu_action, &QAction::triggered, [] () {
         addDevUI->ShowHideDialog(1);
     });
     #endif
+
     return true;
 }
 

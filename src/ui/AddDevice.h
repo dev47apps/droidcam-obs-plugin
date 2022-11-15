@@ -1,10 +1,11 @@
 // Copyright (C) 2022 DEV47APPS, github.com/dev47apps
 #pragma once
 
-#include <QtCore/QThread>
-#include <QtWidgets/QDialog>
-#include <QtGui/QIcon>
-#include <QtSvg/QSvgWidget>
+#include <QThread>
+#include <QDialog>
+#include <QIcon>
+#include <QSvgWidget>
+
 #include "uic_AddDevice.h"
 
 typedef struct active_device_info DeviceInfo;

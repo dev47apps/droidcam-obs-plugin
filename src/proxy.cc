@@ -23,6 +23,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include <vector>
 
+void *proxy_run(void *data);
+
 Proxy::Proxy(DeviceDiscovery* device_discovery) {
     port_local = 0;
     port_remote = 0;
@@ -78,7 +80,6 @@ struct proxy_conn {
 #else
 #define vlog /**/
 #endif
-
 
 void* proxy_run(void *data) {
     fd_set set;
