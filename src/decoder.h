@@ -56,8 +56,8 @@ struct Decoder {
     Queue<DataPacket*> recieveQueue;
     Queue<DataPacket*> decodeQueue;
     size_t alloc_count;
-    bool ready;
-    bool failed;
+    volatile bool ready;
+    volatile bool failed;
 
     Decoder(void) {
         alloc_count = 0;

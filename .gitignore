@@ -1,1 +1,3 @@
 build/
+src/ui/moc_*
+src/ui/uic_*
