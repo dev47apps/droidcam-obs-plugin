@@ -382,6 +382,9 @@ static void *video_thread(void *data) {
                 plugin->iosMgr->Reload();
                 plugin->iosMgr->ResetIter();
                 break;
+            case DeviceType::WIFI:
+            case DeviceType::NONE:
+                break;
         }
     }
 

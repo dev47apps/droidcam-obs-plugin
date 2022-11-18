@@ -183,7 +183,7 @@ net_connect(struct addrinfo *addr, uint16_t port) {
     if (WSAGetLastError() != WSAEWOULDBLOCK)
         goto ERROR_OUT;
 #else
-    if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINPROGRESS)) {
+    if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINPROGRESS) {
         WSAErrno();
         elog("connect(): %s", strerror(errno));
         goto ERROR_OUT;

@@ -15,7 +15,7 @@
   typedef int ssize_t;
 #else
   #define INVALID_SOCKET -1
-  #define WSAErrno
+  #define WSAErrno(...)
   typedef int socket_t;
 #endif
 

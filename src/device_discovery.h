@@ -149,8 +149,8 @@ struct USBMux : DeviceDiscovery {
     void* usbmuxd_device_list;
 #else
     usbmuxd_device_info_t* usbmuxd_device_list;
-    Proxy iproxy;
 #endif
+    Proxy iproxy;
 
     USBMux();
     ~USBMux();

@@ -14,14 +14,17 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "net.h"
-#include "plugin.h"
-#include "device_discovery.h"
-#include "plugin_properties.h"
-
+#ifndef _WIN32
+# include <sys/select.h>
+#endif
 #include <util/platform.h>
 
 #include <vector>
+
+#include "plugin.h"
+#include "plugin_properties.h"
+#include "net.h"
+#include "device_discovery.h"
 
 void *proxy_run(void *data);
 
@@ -78,7 +81,7 @@ struct proxy_conn {
 #ifdef TEST
 #define vlog dlog
 #else
-#define vlog /**/
+#define vlog(...)
 #endif
 
 void* proxy_run(void *data) {
@@ -96,10 +99,25 @@ void* proxy_run(void *data) {
 
         if (client != INVALID_SOCKET) {
             // todo: make connect function generic, usbmux hacked in here for now
+            #ifdef _WIN32
             auto usbmux = (USBMux*) proxy->discovery_mgr;
             int rc = usbmux->usbmuxd_connect(
                 (uint32_t) proxy->proxy_device->handle,
                 (short) proxy->port_remote);
+
+            #elif __linux__
+            int rc = usbmuxd_connect(
+                (uint32_t) proxy->proxy_device->handle,
+                (short) proxy->port_remote);
+
+            #elif __APPLE__
+            int rc = net_connect(
+                (const char*) proxy->proxy_device->address,
+                proxy->port_remote);
+
+            #else
+            #error Unknown System
+            #endif
 
             if (rc > 0) {
                 socket_t remote = rc;
