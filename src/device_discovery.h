@@ -99,6 +99,7 @@ struct MDNS : DeviceDiscovery {
 // MARK: Android USB
 struct AdbMgr : DeviceDiscovery {
     const char* suffix = "USB";
+    char *adb_exe_local;
     int disabled;
     AdbMgr();
     ~AdbMgr();
@@ -124,6 +125,9 @@ struct USBMux : DeviceDiscovery {
     const char* suffix = "USB";
 
 #ifdef _WIN32
+    char *usbmuxd_dll;
+    char *idevice_dll;
+
     idevice_new_t  idevice_new;
     idevice_free_t  idevice_free;
 

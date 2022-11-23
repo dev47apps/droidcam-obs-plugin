@@ -249,7 +249,7 @@ void MDNS::DoReload(void) {
     }
     {
         struct pollfd fd_set = { sock, POLLIN, 0 };
-        int timeout = 1200;
+        int timeout = 1750;
         const int NS_MS_FACTOR = 1000000;
         uint64_t time_end = timeout + (os_gettime_ns() / NS_MS_FACTOR);
         do {

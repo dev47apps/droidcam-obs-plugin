@@ -30,7 +30,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 bool process_check_success(process_t proc, const char *name) {
     if (proc == PROCESS_NONE) {
-        elog("Could not execute \"%s\"", name);
         return false;
     }
     exit_code_t exit_code;
@@ -142,21 +141,7 @@ Device* DeviceDiscovery::AddDevice(const char* serial, size_t length) {
 }
 
 // adb commands
-static const char *adb_exe =
-#ifdef TEST
-    "build" PATH_SEPARATOR "adbz.exe";
-#else // --
-
-#ifdef _WIN32
-    PLUGIN_DATA_DIR "\\adb\\adb.exe";
-#else
-    #ifdef __APPLE__
-    "/usr/local/bin/adb";
-    #else
-    "adb";
-    #endif
-#endif
-#endif
+static const char *adb_exe = NULL;
 
 process_t
 adb_execute(const char *serial, const char *const adb_cmd[], size_t len, char *output, size_t out_size) {
@@ -165,6 +150,11 @@ adb_execute(const char *serial, const char *const adb_cmd[], size_t len, char *o
     process_t process;
     if (len > sizeof(cmd)-6) {
         elog("max 32 command args allowed");
+        return PROCESS_NONE;
+    }
+
+    if (!adb_exe) {
+        elog("adb exe not available");
         return PROCESS_NONE;
     }
 
@@ -194,22 +184,52 @@ adb_execute(const char *serial, const char *const adb_cmd[], size_t len, char *o
 
 AdbMgr::AdbMgr() {
     process_t proc;
-
-#if defined(_WIN32) || defined(__APPLE__)
-   if (!FileExists(adb_exe)) {
-
-#else // Linux
     const char *version[] = {"version"};
-    proc = adb_execute(NULL, version, ARRAY_LEN(version), NULL, 0);
-    if (!process_check_success(proc, "adb version")) {
-        ilog("PATH=%s", getenv("PATH"));
 
-#endif
-        elog("%s not found", adb_exe);
-        disabled = 1;
+    #ifdef TEST
+    adb_exe_local = NULL;
+    #elif defined(_WIN32)
+    adb_exe_local = obs_module_file("adb/adb.exe");
+    #else // __APPLE__, __linux__
+    adb_exe_local = obs_module_file("adb");
+    #endif
+
+    const char *ADB_VARIANTS[] = {
+        #ifdef TEST
+        "build/adbz.exe",
+        #else
+        "adb",
+        #ifndef _WIN32
+        "/usr/local/bin/adb",
+        "/usr/bin/adb",
+        "/bin/adb",
+        #endif
+        adb_exe_local
+        #endif // TEST
+    };
+
+    disabled = 1;
+
+    for (size_t i = 0; i < ARRAY_LEN(ADB_VARIANTS); i++) {
+        adb_exe = ADB_VARIANTS[i];
+        if (!adb_exe)
+            continue;
+
+        ilog("checking %s", adb_exe);
+        if (strncmp(adb_exe, "adb", 3) == 0 || FileExists(adb_exe)) {
+            proc = adb_execute(NULL, version, ARRAY_LEN(version), NULL, 0);
+            if (process_check_success(proc, "adb version")) {
+                disabled = 0;
+                break;
+            }
+        }
+    }
+
+    if (disabled) {
+        elog("adb not found");
+        ilog("PATH=%s", getenv("PATH"));
         return;
     }
-    disabled = 0;
 
     const char *ss[] = {"start-server"};
     proc = adb_execute(NULL, ss, ARRAY_LEN(ss), NULL, 0);
@@ -217,6 +237,9 @@ AdbMgr::AdbMgr() {
 }
 
 AdbMgr::~AdbMgr() {
+    if (adb_exe_local)
+        bfree(adb_exe_local);
+
 #if 0
     const char *ss[] = {"kill-server"};
     adb_execute(NULL, ss, ARRAY_LEN(ss), NULL, 0);
@@ -346,17 +369,17 @@ USBMux::USBMux() : iproxy(this) {
     usbmuxd_device_list = NULL;
 
 #ifdef _WIN32
-    const char *idevice_dll  = PLUGIN_DATA_DIR PATH_SEPARATOR "imobiledevice.dll";
-    const char *usbmuxd_dll  = PLUGIN_DATA_DIR PATH_SEPARATOR "usbmuxd.dll";
+    usbmuxd_dll = obs_module_file("usbmuxd.dll");
+    idevice_dll = obs_module_file("imobiledevice.dll");
 
-    if (!FileExists(usbmuxd_dll)) {
+    if (!usbmuxd_dll) {
         elog("iOS USB support not available");
         return;
     }
 
-    const char *errmsg = "Error loading dll, iOS USB support n/a";
-    SetDllDirectory(PLUGIN_DATA_DIR);
+    SetDllDirectory(obs_get_module_data_path((obs_current_module())));
 
+    const char *errmsg = "Error loading dll, iOS USB support n/a";
     hModuleIDevice = LoadLibrary(idevice_dll);
     if (!hModuleIDevice) {
         elog("%s (idevice_dll)", errmsg);
@@ -441,6 +464,12 @@ USBMux::~USBMux() {
     }
 
 #ifdef _WIN32
+    if (usbmuxd_dll)
+        bfree(usbmuxd_dll);
+
+    if (idevice_dll)
+        bfree(idevice_dll);
+
     if (hModuleIDevice)
         FreeLibrary(hModuleIDevice);
 
