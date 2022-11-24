@@ -100,7 +100,7 @@ query_callback(int sock, const struct sockaddr* from, size_t addrlen, mdns_entry
             struct sockaddr_in6* sa = (struct sockaddr_in6*) from;
             in_addr = &(sa->sin6_addr);
             break;*/
-            ilog("todo: ipv6 support");
+            dlog("todo: ipv6 support");
             return 0;
         }
     }
@@ -118,7 +118,7 @@ query_callback(int sock, const struct sockaddr* from, size_t addrlen, mdns_entry
 
     if (entry_type == MDNS_ENTRYTYPE_ANSWER) {
         mdns_string_t record = mdns_record_parse_ptr(data, size, record_offset, record_length, entrybuffer, sizeof(Device::serial)-1);
-        ilog("mDNS: ANSWER record=%.*s", MDNS_STRING_FORMAT(record));
+        dlog("mDNS: ANSWER record=%.*s", MDNS_STRING_FORMAT(record));
 
         Device *dev = mdnsMgr->AddDevice(MDNS_STRING_ARGS(record));
         if (dev) {
@@ -141,7 +141,7 @@ query_callback(int sock, const struct sockaddr* from, size_t addrlen, mdns_entry
     mdns_string_t entry = mdns_string_extract(data, size, &name_offset, entrybuffer, sizeof(Device::serial)-1);
     Device *dev = mdnsMgr->GetDevice(MDNS_STRING_ARGS(entry));
     if (dev == NULL) {
-        ilog("device '%.*s' not found", MDNS_STRING_FORMAT(entry));
+        elog("device '%.*s' not found", MDNS_STRING_FORMAT(entry));
         return 0;
     }
 
@@ -174,7 +174,7 @@ query_callback(int sock, const struct sockaddr* from, size_t addrlen, mdns_entry
             if (strncmp(name, MDNS_STRING_ARGS(txtbuf[t].key)) == 0) {
                 MDNS_STRING_LIMIT(txtbuf[t].value, sizeof(Device::model) - strlen(mdnsMgr->suffix) - 6 - 16);
 
-                ilog("using model='%.*s' for '%.*s'", MDNS_STRING_FORMAT(txtbuf[t].value), MDNS_STRING_FORMAT(entry));
+                dlog("using model='%.*s' for '%.*s'", MDNS_STRING_FORMAT(txtbuf[t].value), MDNS_STRING_FORMAT(entry));
                 snprintf(dev->model, sizeof(Device::model), "%.*s [%s] (%.*s)",
                     MDNS_STRING_FORMAT(txtbuf[t].value), mdnsMgr->suffix, MDNS_STRING_FORMAT(fromaddrstr));
             }
@@ -241,7 +241,7 @@ void MDNS::DoReload(void) {
         goto ERROR_OUT;
     }
 
-    ilog("mDNS: query %s %s via socket %d", service_name, record_name, sock);
+    dlog("mDNS: query %s %s via socket %d", service_name, record_name, sock);
     query_id = mdns_query_send(sock, record, service_name, strlen(service_name), buffer, capacity, sock);
     if (query_id < 0) {
         elog("Failed to send mDNS query: %s\n", strerror(errno));
