@@ -1,10 +1,10 @@
 # Variables with ?= can be overridden
 # Example: `ARCH=arm64 make `
 ARCH       ?= x86_64
-DEPS_DIR   ?= ../deps/25
+DEPS_DIR   ?= ../deps/28
 OBS_DIR    ?= $(DEPS_DIR)/src
 FFMPEG_DIR ?= $(DEPS_DIR)
-QT_DIR     ?= /usr/local/opt/qt5
+QT_DIR     ?= /usr/local/opt/qt6
 JPEG_DIR   ?= /usr/local/opt/libjpeg-turbo
 
 
@@ -29,7 +29,8 @@ LDD_DIRS += -L$(FFMPEG_DIR)/lib
 LDD_DIRS += -L$(DEPS_DIR)/lib
 
 LDD_LIBS += -lobs.0
-LDD_LIBS += -lavcodec.58 -lavformat.58 -lavutil.56
+LDD_LIBS += -lobs-frontend-api
+LDD_LIBS += -lavcodec.59 -lavformat.59 -lavutil.57
 LDD_LIBS += -lturbojpeg
 
 LDD_LIBS += $(DEPS_DIR)/lib/QtCore.framework/QtCore
@@ -37,6 +38,5 @@ LDD_LIBS += $(DEPS_DIR)/lib/QtGui.framework/QtGui
 LDD_LIBS += $(DEPS_DIR)/lib/QtSvg.framework/QtSvg
 LDD_LIBS += $(DEPS_DIR)/lib/QtXml.framework/QtXml
 LDD_LIBS += $(DEPS_DIR)/lib/QtWidgets.framework/QtWidgets
-LDD_LIBS += -lobs-frontend-api
 
 LDD_FLAG += -bundle
