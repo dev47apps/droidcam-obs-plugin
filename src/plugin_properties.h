@@ -58,6 +58,10 @@ enum VideoFormat {
     FORMAT_MJPG,
 };
 
+#ifdef __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-variable"
+#endif
 static const char* opt_use_wifi = OPT_DEVICE_ID_WIFI;
 static const char* localhost_ip = "127.0.0.1";
 
@@ -72,6 +76,10 @@ static const char* Resolutions[] = {
     "1280x720",
     "1920x1080",
 };
+
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
+#endif
 
 void resolve_device_type(struct active_device_info*, void* data);
 

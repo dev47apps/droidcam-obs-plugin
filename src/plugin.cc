@@ -700,6 +700,14 @@ static void *plugin_create(obs_data_t *settings, obs_source_t *source) {
 
         if (plugin->device_info.type == DeviceType::WIFI && (!plugin->device_info.ip || plugin->device_info.ip[0] == 0))
             plugin->activated = false;
+
+        // Not sure if this is a bug or a feature.
+        // Launching while activated & hidden will not start video until visibility is toggled.
+        //
+        // activated=1, deactivateWNS=0, is_showing=0, enable_audio=0
+        //
+        // if (plugin->activated || !plugin->deactivateWNS)
+        //     plugin->is_showing = true;
     }
 
     if (os_event_init(&plugin->stop_signal, OS_EVENT_TYPE_MANUAL) != 0) {
@@ -1023,7 +1031,6 @@ static obs_properties_t *plugin_properties(void *data) {
 }
 
 static void plugin_defaults(obs_data_t *settings) {
-    dlog("plugin_defaults");
     obs_data_set_default_bool(settings, OPT_DUMMY_SOURCE, false);
     obs_data_set_default_bool(settings, OPT_IS_ACTIVATED, false);
     obs_data_set_default_bool(settings, OPT_SYNC_AV, false);

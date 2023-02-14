@@ -134,6 +134,7 @@ socket_t
 net_connect(struct addrinfo *addr, uint16_t port) {
     struct sockaddr* ai_addr = addr->ai_addr;
     void *in_addr;
+    int rc;
 
     switch (ai_addr->sa_family) {
         case AF_INET: {
@@ -190,9 +191,13 @@ net_connect(struct addrinfo *addr, uint16_t port) {
     }
 #endif
 
-    if (select(sock+1, NULL, &set, NULL, &timeout) <= 0) {
+    rc = select(sock+1, NULL, &set, NULL, &timeout);
+    if (rc == 0)
+        goto ERROR_OUT;
+
+    if (rc < 0) {
         WSAErrno();
-        elog("connect timeout/failed: %s", strerror(errno));
+        elog("connect failed: %s", strerror(errno));
         goto ERROR_OUT;
     }
 

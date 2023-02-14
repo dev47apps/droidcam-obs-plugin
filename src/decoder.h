@@ -75,6 +75,7 @@ struct Decoder {
             delete packet;
             alloc_count --;
         }
+        if (alloc_count)
         ilog("~decoder alloc_count=%lu", alloc_count);
     }
 
@@ -86,7 +87,7 @@ struct Decoder {
         DataPacket* packet = recieveQueue.next_item();
         if (!packet) {
             packet = new DataPacket(size);
-            ilog("@decoder alloc: size=%ld", size);
+            dlog("@decoder alloc: size=%ld", size);
             alloc_count ++;
         } else {
             packet->resize(size);

@@ -69,7 +69,7 @@ bool MJpegDecoder::decode_video(struct obs_source_frame2* obs_frame, DataPacket*
             return false;
         }
 
-        ilog("stream is %dx%d subsamp %d colorspace %d\n", width, height, subsamp, colorspace);
+        ilog("mjpeg stream is %dx%d subsamp %d colorspace %d\n", width, height, subsamp, colorspace);
         if (subsamp != TJSAMP_420) {
             elog("error: unexpected video image stream subsampling: %d\n", subsamp);
             return false;

@@ -238,6 +238,11 @@ convert_color_space(enum AVColorSpace s, enum AVColorTransferCharacteristic trc,
 	case AVCOL_SPC_SMPTE170M:
 	case AVCOL_SPC_SMPTE240M:
 		return VIDEO_CS_601;
+#if LIBOBS_API_MAJOR_VER < 28
+	default:
+		return VIDEO_CS_DEFAULT;
+
+#else
 	case AVCOL_SPC_BT2020_NCL:
 		return (trc == AVCOL_TRC_ARIB_STD_B67) ? VIDEO_CS_2100_HLG
 						       : VIDEO_CS_2100_PQ;
@@ -247,6 +252,7 @@ convert_color_space(enum AVColorSpace s, enum AVColorTransferCharacteristic trc,
 					  ? VIDEO_CS_2100_HLG
 					  : VIDEO_CS_2100_PQ)
 			       : VIDEO_CS_DEFAULT;
+#endif
 	}
 }
 
@@ -383,6 +389,7 @@ GOT_FRAME:
 		if (obs_frame->format == VIDEO_FORMAT_NONE)
 			return false;
 
+		#if LIBOBS_API_MAJOR_VER >= 28
 		switch (out_frame->color_trc) {
 		case AVCOL_TRC_BT709:
 		case AVCOL_TRC_GAMMA22:
@@ -401,6 +408,7 @@ GOT_FRAME:
 		default:
 			obs_frame->trc = VIDEO_TRC_DEFAULT;
 		}
+		#endif
 	}
 
 	enum video_range_type range =
@@ -412,8 +420,13 @@ GOT_FRAME:
 			out_frame->colorspace, out_frame->color_trc,
 			out_frame->color_primaries);
 
+		#if LIBOBS_API_MAJOR_VER < 28
+		video_format_get_parameters(
+			cs, range, obs_frame->color_matrix,
+		#else
 		video_format_get_parameters_for_format(
 			cs, range, obs_frame->format, obs_frame->color_matrix,
+		#endif
 			obs_frame->color_range_min, obs_frame->color_range_max);
 
 		obs_frame->range = range;

@@ -199,11 +199,17 @@ AdbMgr::AdbMgr() {
         "build/adbz.exe",
         #else
         "adb",
+
+        #ifdef __APPLE__
+        "/opt/homebrew/bin/adb",
+        #endif
+
         #ifndef _WIN32
         "/usr/local/bin/adb",
         "/usr/bin/adb",
         "/bin/adb",
         #endif
+
         adb_exe_local
         #endif // TEST
     };
