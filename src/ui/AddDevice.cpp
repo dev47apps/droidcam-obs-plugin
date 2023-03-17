@@ -80,16 +80,24 @@ AddDevice::AddDevice(QWidget *parent) : QDialog(parent),
 
     ui->deviceList_widget->connect(ui->deviceList_widget,
         &QListWidget::itemActivated, [=](QListWidgetItem *item) {
-            if (item) CreateNewSource(item);
+            if (item) AddNewDevice(item);
         });
 
     ui->addDevice_button->connect(ui->addDevice_button,
         &QPushButton::clicked, [=]() {
             QListWidgetItem *item = ui->deviceList_widget->currentItem();
-            if (item) CreateNewSource(item);
+            if (item) AddNewDevice(item);
         });
 
     connect(ui->refresh_button, SIGNAL(clicked()), this, SLOT(ReloadList()));
+
+    this->signal_handlers.emplace_back(obs_get_signal_handler(), "video_reset",
+        [](void *data, calldata_t *cd) {
+            obs_source_t *scene = obs_frontend_get_current_scene();
+            obs_scene_enum_items(obs_scene_from_source(scene),
+                AddDevice::VideoReset, cd);
+            obs_source_release(scene);
+        }, this);
 
     const char *name = "dummy_droidcam_source";
     dummy_droidcam_source = obs_get_source_by_name(name);
@@ -111,7 +119,7 @@ AddDevice::~AddDevice() {
     obs_source_release((obs_source_t *) dummy_droidcam_source);
 }
 
-void AddDevice::ShowHideDialog(int show) {
+void AddDevice::ShowHideDevicePicker(int show) {
     refresh_count = 0;
 
     if (show < 0) {
@@ -128,7 +136,7 @@ void AddDevice::ShowHideDialog(int show) {
     }
 }
 
-void AddDevice::AddDeviceManual() {
+void AddDevice::AddDeviceManually() {
     QDialog dialog(this, Qt::WindowTitleHint);
     QVBoxLayout form(&dialog);
     QLineEdit nameInput(&dialog);
@@ -177,7 +185,7 @@ void AddDevice::AddDeviceManual() {
         QMessageBox mb(QMessageBox::Warning, title, msg,
              QMessageBox::StandardButtons(QMessageBox::Ok), this);
         mb.exec();
-        AddDeviceManual();
+        AddDeviceManually();
         return;
     }
 
@@ -192,7 +200,7 @@ void AddDevice::AddDeviceManual() {
     // AddListEntry(name, info); <- alternate flow
     QListWidgetItem item(phoneIcon, nameInput.text());
     item.setData(Qt::UserRole, QVariant::fromValue((void*)info));
-    CreateNewSource(&item);
+    AddNewDevice(&item);
 
     bfree(info);
     enable_audio = ui->enableAudio_checkBox->checkState() == Qt::Checked;
@@ -220,7 +228,7 @@ void AddDevice::ClearList() {
 
 void AddDevice::ReloadList() {
     if (refresh_count > 2) {
-        AddDeviceManual();
+        AddDeviceManually();
         return;
     }
 
@@ -313,9 +321,7 @@ static bool removeSource(obs_source_t *source) {
     return result;
 }
 
-void AddDevice::CreateNewSource(QListWidgetItem *item) {
-    char resolution[16];
-    obs_video_info ovi;
+void AddDevice::AddNewDevice(QListWidgetItem *item) {
     void *data = item->data(Qt::UserRole).value<void*>();
 
     QByteArray text = item->text().toUtf8();
@@ -392,7 +398,13 @@ void AddDevice::CreateNewSource(QListWidgetItem *item) {
         return;
     }
 
-    DeviceInfo* device_info = (DeviceInfo *) data;
+    AddSourceInternal((DeviceInfo *) data, device_name);
+    ShowHideDevicePicker(0);
+}
+
+void AddDevice::AddSourceInternal(DeviceInfo* device_info, const char* device_name) {
+    char resolution[16];
+    obs_video_info ovi;
     obs_data_t *settings = obs_data_create();
     obs_data_set_int(settings, OPT_ACTIVE_DEV_TYPE, (int) device_info->type);
     obs_data_set_int(settings, OPT_APP_PORT       , device_info->port);
@@ -415,7 +427,8 @@ void AddDevice::CreateNewSource(QListWidgetItem *item) {
         obs_sceneitem_t *item = obs_scene_add(obs_scene_from_source(scene), source);
 
         // Apply Fit to screen transform
-        obs_transform_info txi;
+        // note: these values are checked for below in VideoReset
+        struct obs_transform_info txi;
         vec2_set(&txi.pos, 0.0f, 0.0f);
         vec2_set(&txi.scale, 1.0f, 1.0f);
         txi.alignment = OBS_ALIGN_LEFT | OBS_ALIGN_TOP;
@@ -439,5 +452,74 @@ void AddDevice::CreateNewSource(QListWidgetItem *item) {
     }
 
     obs_data_release(settings);
-    ShowHideDialog(0);
+}
+
+bool AddDevice::VideoReset(obs_scene_t*, obs_sceneitem_t *item, void *data) {
+    obs_source_t* source = obs_sceneitem_get_source(item);
+    if (!source) {
+        skip:
+        return true;
+    }
+
+    const char *id = obs_source_get_id(source);
+    const char *name = obs_source_get_name(source);
+    if (!(id && name && strcmp(id, DROIDCAM_OBS_ID) == 0))
+        goto skip;
+
+    dlog("VideoReset: found source '%s'", name);
+
+    struct obs_transform_info txi;
+    obs_sceneitem_get_info(item, &txi);
+
+    // Check if txi matches exactly to the preset from above
+    if (txi.pos.x != 0 && txi.pos.y != 0 && txi.rot != 0)
+        goto skip;
+
+    if (txi.scale.x != 1.0f && txi.scale.y != 1.0f)
+        goto skip;
+
+    if (txi.alignment != (OBS_ALIGN_LEFT | OBS_ALIGN_TOP))
+        goto skip;
+
+    if (txi.bounds_type != OBS_BOUNDS_SCALE_INNER
+        || txi.bounds_alignment != OBS_ALIGN_CENTER)
+        goto skip;
+
+    auto cd = (calldata_t*) data;
+    auto prev_ovi = (obs_video_info *)calldata_ptr(cd, "prev_video_info");
+    if (!prev_ovi) {
+        elog("WARNING: video_reset signal with empty prev_video_info");
+        return false;
+    }
+
+    if (txi.bounds.x != float(prev_ovi->base_width)
+        || txi.bounds.y != float(prev_ovi->base_height))
+        goto skip;
+
+    obs_data_t *settings = obs_source_get_settings(source);
+    if (settings)
+    {
+        char resolution[16];
+        obs_video_info ovi;
+
+        obs_get_video_info(&ovi);
+        snprintf(resolution, sizeof(resolution), "%dx%d", ovi.base_width, ovi.base_height);
+        obs_data_set_int(settings, OPT_RESOLUTION, getResolutionIndex(resolution));
+
+        auto ppts = obs_source_properties(source);
+        obs_property_modified(obs_properties_get(ppts, OPT_RESOLUTION), settings);
+        obs_properties_destroy(ppts);
+        obs_data_release(settings);
+
+        vec2_set(&txi.pos, 0.0f, 0.0f);
+        vec2_set(&txi.scale, 1.0f, 1.0f);
+        txi.alignment = OBS_ALIGN_LEFT | OBS_ALIGN_TOP;
+        txi.rot = 0.0f;
+        vec2_set(&txi.bounds, float(ovi.base_width), float(ovi.base_height));
+        txi.bounds_type = OBS_BOUNDS_SCALE_INNER;
+        txi.bounds_alignment = OBS_ALIGN_CENTER;
+        obs_sceneitem_set_info(item, &txi);
+    }
+
+    return true;
 }

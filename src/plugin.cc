@@ -34,7 +34,7 @@ QMainWindow *main_window = NULL;
 AddDevice* addDevUI = NULL;
 #endif
 
-#endif
+#endif /* ENABLE_GUI */
 
 #include "plugin.h"
 #include "plugin_properties.h"
@@ -49,6 +49,7 @@ AddDevice* addDevUI = NULL;
 #define MILLI_SEC 1000
 #define NANO_SEC  1000000000
 
+// TODO: "PLUGIN" -> "SOURCE"
 #define PLUGIN_RUNNING() (os_event_try(plugin->stop_signal) == EAGAIN)
 
 struct droidcam_obs_plugin {
@@ -59,6 +60,7 @@ struct droidcam_obs_plugin {
     Decoder* audio_decoder;
     obs_source_t *source;
     os_event_t *stop_signal;
+    os_event_t *reset_signal;
     pthread_t audio_thread;
     pthread_t video_thread;
     pthread_t video_decode_thread;
@@ -391,9 +393,9 @@ static void *video_thread(void *data) {
     while (PLUGIN_RUNNING()) {
         if (plugin->activated && plugin->is_showing) {
             if (plugin->video_running) {
-                if (recv_video_frame(plugin, sock)) {
+                if (os_event_try(plugin->reset_signal) == EAGAIN
+                    && recv_video_frame(plugin, sock))
                     continue;
-                }
 
                 plugin->video_running = false;
                 dlog("closing failed video socket %d", sock);
@@ -405,15 +407,13 @@ static void *video_thread(void *data) {
             if ((sock = connect(plugin)) == INVALID_SOCKET)
                 goto SLOW_LOOP;
 
-            if (video_req_len == 0) {
-                video_req_len = snprintf(video_req, sizeof(video_req), VIDEO_REQ,
-                    VideoFormatNames[plugin->video_format][1],
-                    Resolutions[plugin->video_resolution],
-                    plugin->usb_port,
-                    VERSION_TEXT, 5912);
-                dlog("%s", video_req);
-            }
+            video_req_len = snprintf(video_req, sizeof(video_req), VIDEO_REQ,
+                VideoFormatNames[plugin->video_format][1],
+                Resolutions[plugin->video_resolution],
+                plugin->usb_port,
+                VERSION_TEXT, 5912);
 
+            dlog("%s", video_req);
             if (net_send_all(sock, video_req, video_req_len) <= 0) {
                 elog("send(/video) failed");
                 net_close(sock);
@@ -439,6 +439,7 @@ static void *video_thread(void *data) {
                 obs_data_release(settings);
             }
 
+            os_event_reset(plugin->reset_signal);
             continue;
         }
         // else: not activated
@@ -638,6 +639,7 @@ static void plugin_destroy(void *data) {
 
             pthread_join(plugin->video_decode_thread, NULL);
             os_event_destroy(plugin->stop_signal);
+            os_event_destroy(plugin->reset_signal);
         }
 
         ilog("cleanup");
@@ -715,6 +717,11 @@ static void *plugin_create(obs_data_t *settings, obs_source_t *source) {
         return NULL;
     }
 
+    if (os_event_init(&plugin->reset_signal, OS_EVENT_TYPE_MANUAL) != 0) {
+        plugin_destroy(plugin);
+        return NULL;
+    }
+
     if (pthread_create(&plugin->video_thread, NULL, video_thread, plugin) != 0) {
         plugin_destroy(plugin);
         return NULL;
@@ -749,8 +756,6 @@ static void plugin_hide(void *data) {
 }
 
 static inline void toggle_ppts(obs_properties_t *ppts, bool enable) {
-    obs_property_set_enabled(obs_properties_get(ppts, OPT_RESOLUTION)  , enable);
-    obs_property_set_enabled(obs_properties_get(ppts, OPT_VIDEO_FORMAT), enable);
     obs_property_set_enabled(obs_properties_get(ppts, OPT_REFRESH)     , enable);
     obs_property_set_enabled(obs_properties_get(ppts, OPT_DEVICE_LIST) , enable);
     obs_property_set_enabled(obs_properties_get(ppts, OPT_WIFI_IP)     , enable);
@@ -800,6 +805,27 @@ void resolve_device_type(struct active_device_info *device_info, void* data) {
     out:
     device_info->type = DeviceType::NONE;
     return;
+}
+
+static bool video_parms_changed(void *data, obs_properties_t*, obs_property_t*,
+                 obs_data_t *settings) {
+
+    droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
+
+    int video_resolution = obs_data_get_int(settings, OPT_RESOLUTION);
+    enum VideoFormat video_format = (VideoFormat) obs_data_get_int(settings, OPT_VIDEO_FORMAT);
+
+    if (video_resolution == plugin->video_resolution
+        && video_format == plugin->video_format)
+        return false;
+
+    plugin->video_resolution = video_resolution;
+    plugin->video_format = video_format;
+    ilog("video_parms_changed: video_format=%d/%s video_resolution=%d/%s",
+        plugin->video_format, VideoFormatNames[plugin->video_format][1],
+        plugin->video_resolution, Resolutions[plugin->video_resolution]);
+    os_event_signal(plugin->reset_signal);
+    return false;
 }
 
 static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *data) {
@@ -977,9 +1003,13 @@ static obs_properties_t *plugin_properties(void *data) {
     for (size_t i = 0; i < ARRAY_LEN(Resolutions); i++)
         obs_property_list_add_int(cp, Resolutions[i], i);
 
+    obs_property_set_modified_callback2(cp, video_parms_changed, data);
+
     cp = obs_properties_add_list(ppts, OPT_VIDEO_FORMAT, TEXT_VIDEO_FORMAT, OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
     for (size_t i = 0; i < ARRAY_LEN(VideoFormatNames); i++)
         obs_property_list_add_int(cp, VideoFormatNames[i][0], i);
+
+    obs_property_set_modified_callback2(cp, video_parms_changed, data);
 
     obs_properties_add_list(ppts, OPT_DEVICE_LIST, TEXT_DEVICE, OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
     cp = obs_properties_get(ppts, OPT_DEVICE_LIST);
@@ -1093,7 +1123,7 @@ bool obs_module_load(void) {
 
     QAction *tools_menu_action = (QAction*)obs_frontend_add_tools_menu_qaction("DroidCam");
     tools_menu_action->connect(tools_menu_action, &QAction::triggered, [] () {
-        addDevUI->ShowHideDialog(1);
+        addDevUI->ShowHideDevicePicker(1);
     });
     #endif
 
