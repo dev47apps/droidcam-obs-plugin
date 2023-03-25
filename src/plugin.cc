@@ -44,7 +44,7 @@ AddDevice* addDevUI = NULL;
 #include "buffer_util.h"
 #include "device_discovery.h"
 
-#define VERSION_TEXT "201"
+#define PLUGIN_VERSION_STR "202"
 #define FPS 25
 #define MILLI_SEC 1000
 #define NANO_SEC  1000000000
@@ -411,7 +411,11 @@ static void *video_thread(void *data) {
                 VideoFormatNames[plugin->video_format][1],
                 Resolutions[plugin->video_resolution],
                 plugin->usb_port,
-                VERSION_TEXT, 5912);
+                #if DROIDCAM_OVERRIDE
+                obs_get_version_string(), 5912);
+                #else
+                PLUGIN_VERSION_STR, 5912);
+                #endif
 
             dlog("%s", video_req);
             if (net_send_all(sock, video_req, video_req_len) <= 0) {
@@ -653,7 +657,7 @@ static void plugin_destroy(void *data) {
 }
 
 static void *plugin_create(obs_data_t *settings, obs_source_t *source) {
-    ilog("create: r" VERSION_TEXT " \"%s\"", obs_source_get_name(source));
+    ilog("Source: \"%s\" - " PLUGIN_VERSION_STR, obs_source_get_name(source));
     obs_source_set_async_unbuffered(source, true);
 
     droidcam_obs_plugin *plugin = new droidcam_obs_plugin();
