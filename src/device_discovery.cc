@@ -130,6 +130,11 @@ Device* DeviceDiscovery::GetDevice(const char* serial, size_t length) {
 }
 
 Device* DeviceDiscovery::AddDevice(const char* serial, size_t length) {
+    if (GetDevice(serial, length)) {
+        elog("AddDevice: duplicate found");
+        return NULL;
+    }
+
     for (int i = 0; i < DEVICES_LIMIT; i++) {
         if (deviceList[i] == NULL) {
             deviceList[i] = new Device();

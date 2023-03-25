@@ -19,8 +19,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #ifndef _WIN32
 # include <arpa/inet.h>
 # include <sys/errno.h>
+# include <sys/select.h>
 # include <sys/socket.h>
-# include <poll.h>
 # include <netdb.h>
 
 // for mdns.h
@@ -123,11 +123,12 @@ query_callback(int sock, const struct sockaddr* from, size_t addrlen, mdns_entry
         Device *dev = mdnsMgr->AddDevice(MDNS_STRING_ARGS(record));
         if (dev) {
             ilog("added new device with serial '%.*s'", MDNS_STRING_FORMAT(record));
+            dev->handle = query_id;
             MDNS_STRING_LIMIT(fromaddrstr, sizeof(Device::address)-1);
             memcpy(dev->model, MDNS_STRING_ARGS(fromaddrstr));
             memcpy(dev->address, MDNS_STRING_ARGS(fromaddrstr));
         } else {
-            elog("error adding device, device list is full?");
+            elog("error adding device");
         }
 
         return 0;
@@ -144,6 +145,10 @@ query_callback(int sock, const struct sockaddr* from, size_t addrlen, mdns_entry
         elog("device '%.*s' not found", MDNS_STRING_FORMAT(entry));
         return 0;
     }
+    // if (dev->handle != query_id) {
+    //     dlog("device '%.*s' query_id mis-match", MDNS_STRING_FORMAT(entry));
+    //     return 0;
+    // }
 
     // ADDITIONAL section
     if (rtype == MDNS_RECORDTYPE_SRV) {
@@ -224,50 +229,83 @@ int find_sockaddr(int network_mask) {
     return INVALID_SOCKET;
 }
 
+#define PARALLEL 3
 
 void MDNS::DoReload(void) {
     const char* service_name = DROIDCAM_SERVICE_NAME;
-    const char* record_name = "ANY";
     const mdns_record_type_t record = MDNS_RECORDTYPE_ANY;
+    fd_set set;
+    socket_t maxfd = 0;
     size_t capacity = 2048;
-    void* buffer = malloc(capacity);
-    int query_id;
+    void* buffer = malloc(capacity * PARALLEL);
 
-    socket_t sock = (network_mask != 0) ?
-        find_sockaddr(network_mask) : mdns_socket_open_ipv4(NULL);
+    struct query {
+        socket_t sock;
+        void* buffer;
+        int query_id;
+    } socks[PARALLEL];
 
-    if (sock < 0) {
-        elog("socket(): %s", strerror(errno));
-        goto ERROR_OUT;
+    FD_ZERO(&set);
+    memset(&socks, 0, sizeof(struct query) * PARALLEL);
+
+    for (int i = 0; i < PARALLEL; i++) {
+        socket_t sock = (network_mask != 0) ?
+            find_sockaddr(network_mask) : mdns_socket_open_ipv4(NULL);
+
+        if (sock < 0) {
+            elog("socket(): %s", strerror(errno));
+            continue;
+        }
+
+        FD_SET(sock, &set); if (sock > maxfd) maxfd = sock;
+        dlog("mDNS: query %s ANY via socket %d", service_name, sock);
+
+        socks[i].sock = sock;
+        socks[i].buffer = (char*)buffer + i * capacity;
+        socks[i].query_id = mdns_query_send(sock, record, service_name, strlen(service_name),
+            socks[i].buffer, capacity, sock);
+
+        if (socks[i].query_id < 0) {
+            elog("Failed to send mDNS query: %s\n", strerror(errno));
+        }
     }
 
-    dlog("mDNS: query %s %s via socket %d", service_name, record_name, sock);
-    query_id = mdns_query_send(sock, record, service_name, strlen(service_name), buffer, capacity, sock);
-    if (query_id < 0) {
-        elog("Failed to send mDNS query: %s\n", strerror(errno));
-        goto ERROR_OUT;
-    }
+    if (maxfd)
     {
-        struct pollfd fd_set = { sock, POLLIN, 0 };
-        int timeout = 1750;
         const int NS_MS_FACTOR = 1000000;
-        uint64_t time_end = timeout + (os_gettime_ns() / NS_MS_FACTOR);
-        do {
-            if (poll(&fd_set, 1, timeout) <= 0)
-                break;
+        uint64_t time_end = 1750 + (os_gettime_ns() / NS_MS_FACTOR);
+        struct timeval timeout;
+        timeout.tv_sec = 0;
+        timeout.tv_usec = 2000;
 
-            if (fd_set.revents & POLLIN) {
-                void* user_data = this;
-                mdns_query_recv(sock, buffer, capacity, query_callback, user_data, query_id);
+        do {
+            fd_set read_fds = set;
+            int rc = select(maxfd+1, &read_fds, NULL, NULL, &timeout);
+            if (rc == 0) continue;
+            if (rc <  0) {
+                WSAErrno();
+                elog("mDNS: select failed (%d): %s", errno, strerror(errno));
+                break;
             }
 
-            timeout = (int)(time_end - (os_gettime_ns() / NS_MS_FACTOR));
-        } while (timeout > 0);
+            for (int i = 0; i < PARALLEL; i++) {
+                auto sock = socks[i].sock;
+                auto buffer = socks[i].buffer;
+                auto query_id = socks[i].query_id;
+                if (query_id && FD_ISSET(sock, &read_fds)) {
+                    void* user_data = this;
+                    mdns_query_recv(sock, buffer, capacity, query_callback, user_data, query_id);
+                }
+            }
+        } while ((os_gettime_ns() / NS_MS_FACTOR) < time_end);
     }
-ERROR_OUT:
+
     free(buffer);
-    if (sock > 0)
-        mdns_socket_close(sock);
+    for (int i = 0; i < PARALLEL; i++) {
+        auto sock = socks[i].sock;
+        if (sock > 0)
+            mdns_socket_close(sock);
+    }
 
     return;
 }
