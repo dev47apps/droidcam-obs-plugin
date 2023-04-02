@@ -1,7 +1,5 @@
 // Copyright (C) 2021 DEV47APPS, github.com/dev47apps
-#ifndef __PLUGIN_H__
-#define __PLUGIN_H__
-
+#pragma once
 #include <obs-module.h>
 
 #define xlog(log_level, format, ...) \
@@ -19,4 +17,8 @@
 #define NO_PTS UINT64_C(~0)
 #define ARRAY_LEN(a) (sizeof(a) / sizeof(a[0]))
 
+#if DROIDCAM_OVERRIDE
+void droidcam_signal(obs_source_t* source, const char* signal);
+#else
+#define droidcam_signal(source, signal) /* */
 #endif

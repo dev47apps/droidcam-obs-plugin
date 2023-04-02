@@ -23,6 +23,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "AddDevice.h"
 
 #include "plugin.h"
+#include "source.h"
 #include "plugin_properties.h"
 #include "obs-frontend-api.h"
 

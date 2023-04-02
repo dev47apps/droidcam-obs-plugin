@@ -18,25 +18,14 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <util/threading.h>
 #include <util/platform.h>
 
-#if DROIDCAM_OVERRIDE
-#define ENABLE_GUI 1
-#endif
-
-#if ENABLE_GUI
-#include <QAction>
+#if (DROIDCAM_OVERRIDE) || (ENABLE_GUI)
 #include <QMainWindow>
 #include <QMessageBox>
-#include "obs-frontend-api.h"
-QMainWindow *main_window = NULL;
-
-#if DROIDCAM_OVERRIDE
-#include "AddDevice.h"
-AddDevice* addDevUI = NULL;
+extern QMainWindow *main_window;
 #endif
 
-#endif /* ENABLE_GUI */
-
 #include "plugin.h"
+#include "source.h"
 #include "plugin_properties.h"
 #include "ffmpeg_decode.h"
 #include "mjpeg_decode.h"
@@ -152,26 +141,6 @@ static socket_t connect(struct droidcam_obs_plugin *plugin) {
     out:
     return INVALID_SOCKET;
 }
-
-#if DROIDCAM_OVERRIDE
-static const char *droidcam_signals[] = {
-    "void droidcam_connect(ptr source)",
-    "void droidcam_disconnect(ptr source)",
-    NULL,
-};
-
-static void droidcam_signal(obs_source_t* source, const char* signal) {
-    calldata_t cd;
-    calldata_init(&cd);
-    calldata_set_ptr(&cd, "source", source);
-    dlog("droidcam_signal->%s", signal);
-    signal_handler_signal(obs_get_signal_handler(), signal, &cd);
-    calldata_free(&cd);
-}
-
-#else
-#define droidcam_signal(source, signal) /*o*/
-#endif
 
 #define MAXCONFIG 1024
 #define MAXPACKET 1024 * 1024
@@ -630,7 +599,7 @@ static void *audio_thread(void *data) {
     return NULL;
 }
 
-static void plugin_destroy(void *data) {
+void source_destroy(void *data) {
     droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
     ilog("destroy: \"%s\"", obs_source_get_name(plugin->source));
 
@@ -656,7 +625,7 @@ static void plugin_destroy(void *data) {
     }
 }
 
-static void *plugin_create(obs_data_t *settings, obs_source_t *source) {
+void *source_create(obs_data_t *settings, obs_source_t *source) {
     ilog("Source: \"%s\" - " PLUGIN_VERSION_STR, obs_source_get_name(source));
     obs_source_set_async_unbuffered(source, true);
 
@@ -717,27 +686,27 @@ static void *plugin_create(obs_data_t *settings, obs_source_t *source) {
     }
 
     if (os_event_init(&plugin->stop_signal, OS_EVENT_TYPE_MANUAL) != 0) {
-        plugin_destroy(plugin);
+        source_destroy(plugin);
         return NULL;
     }
 
     if (os_event_init(&plugin->reset_signal, OS_EVENT_TYPE_MANUAL) != 0) {
-        plugin_destroy(plugin);
+        source_destroy(plugin);
         return NULL;
     }
 
     if (pthread_create(&plugin->video_thread, NULL, video_thread, plugin) != 0) {
-        plugin_destroy(plugin);
+        source_destroy(plugin);
         return NULL;
     }
 
     if (pthread_create(&plugin->video_decode_thread, NULL, video_decode_thread, plugin) != 0) {
-        plugin_destroy(plugin);
+        source_destroy(plugin);
         return NULL;
     }
 
     if (pthread_create(&plugin->audio_thread, NULL, audio_thread, plugin) != 0) {
-        plugin_destroy(plugin);
+        source_destroy(plugin);
         return NULL;
     }
 
@@ -745,18 +714,18 @@ static void *plugin_create(obs_data_t *settings, obs_source_t *source) {
     return plugin;
 }
 
-static void plugin_show(void *data) {
+void source_show(void *data) {
     droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
     plugin->is_showing = true;
-    dlog("plugin_show: is_showing=%d", plugin->is_showing);
+    dlog("source_show: is_showing=%d", plugin->is_showing);
 }
 
-static void plugin_hide(void *data) {
+void source_hide(void *data) {
     droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
     if (plugin->deactivateWNS && plugin->activated)
         plugin->is_showing = false;
 
-    dlog("plugin_hide: is_showing=%d", plugin->is_showing);
+    dlog("source_hide: is_showing=%d", plugin->is_showing);
 }
 
 static inline void toggle_ppts(obs_properties_t *ppts, bool enable) {
@@ -869,7 +838,7 @@ static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
         if (!device_info->ip || device_info->ip[0] == 0) {
             elog("target IP is empty");
 
-            #if ENABLE_GUI
+            #if (DROIDCAM_OVERRIDE) || (ENABLE_GUI)
             QString title = QString(obs_module_text("DroidCam"));
             QString msg = QString(obs_module_text("NoWifiIP"));
             QMessageBox mb(QMessageBox::Information, title, msg,
@@ -923,9 +892,7 @@ static bool refresh_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
 
     if (plugin->time_start == 0) {
         // dummy mode
-        #if DROIDCAM_OVERRIDE
-        if (addDevUI) addDevUI->dummy_source_priv_data = plugin;
-        #endif
+        ilog("ReLoading Device List...");
     }
     else {
         ilog("Refresh Device List clicked");
@@ -968,7 +935,7 @@ static bool refresh_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
     return true;
 }
 
-static void plugin_update(void *data, obs_data_t *settings) {
+void source_update(void *data, obs_data_t *settings) {
     droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
     plugin->deactivateWNS = obs_data_get_bool(settings, OPT_DEACTIVATE_WNS);
     plugin->enable_audio  = obs_data_get_bool(settings, OPT_ENABLE_AUDIO);
@@ -989,7 +956,7 @@ static void plugin_update(void *data, obs_data_t *settings) {
     }
 }
 
-static obs_properties_t *plugin_properties(void *data) {
+obs_properties_t *source_properties(void *data) {
     droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
     obs_properties_t *ppts = obs_properties_create();
     obs_property_t *cp;
@@ -1064,7 +1031,7 @@ static obs_properties_t *plugin_properties(void *data) {
     return ppts;
 }
 
-static void plugin_defaults(obs_data_t *settings) {
+void source_defaults(obs_data_t *settings) {
     obs_data_set_default_bool(settings, OPT_DUMMY_SOURCE, false);
     obs_data_set_default_bool(settings, OPT_IS_ACTIVATED, false);
     obs_data_set_default_bool(settings, OPT_SYNC_AV, false);
@@ -1072,67 +1039,4 @@ static void plugin_defaults(obs_data_t *settings) {
     obs_data_set_default_bool(settings, OPT_ENABLE_AUDIO, false);
     obs_data_set_default_bool(settings, OPT_DEACTIVATE_WNS, false);
     obs_data_set_default_int(settings, OPT_APP_PORT, DEFAULT_PORT);
-}
-
-static const char *plugin_getname(void *data) {
-    UNUSED_PARAMETER(data);
-    #if DROIDCAM_OVERRIDE
-    return "DroidCam";
-    #else
-    return obs_module_text("DroidCamOBS");
-    #endif
-}
-
-struct obs_source_info droidcam_obs_info;
-
-OBS_DECLARE_MODULE()
-OBS_MODULE_USE_DEFAULT_LOCALE("droidcam-obs", "en-US")
-MODULE_EXPORT const char *obs_module_description(void) {
-    return "Android and iOS camera source";
-}
-
-bool obs_module_load(void) {
-    memset(&droidcam_obs_info, 0, sizeof(struct obs_source_info));
-
-    droidcam_obs_info.id           = "droidcam_obs";
-    droidcam_obs_info.type         = OBS_SOURCE_TYPE_INPUT;
-    droidcam_obs_info.output_flags = OBS_SOURCE_DO_NOT_DUPLICATE | OBS_SOURCE_AUDIO | OBS_SOURCE_ASYNC_VIDEO;
-    droidcam_obs_info.get_name     = plugin_getname;
-    droidcam_obs_info.create       = plugin_create;
-    droidcam_obs_info.destroy      = plugin_destroy;
-    droidcam_obs_info.show         = plugin_show;
-    droidcam_obs_info.hide         = plugin_hide;
-    droidcam_obs_info.update       = plugin_update;
-    #if DROIDCAM_OVERRIDE
-    droidcam_obs_info.icon_type    = OBS_ICON_TYPE_CAMERA;
-    #else
-    droidcam_obs_info.icon_type    = OBS_ICON_TYPE_CUSTOM;
-    #endif
-    droidcam_obs_info.get_defaults = plugin_defaults;
-    droidcam_obs_info.get_properties = plugin_properties;
-    obs_register_source(&droidcam_obs_info);
-
-    #if DROIDCAM_OVERRIDE
-    signal_handler_add_array(obs_get_signal_handler(), droidcam_signals);
-    #endif
-
-    #if ENABLE_GUI
-    main_window = (QMainWindow *)obs_frontend_get_main_window();
-    #endif
-
-    #if DROIDCAM_OVERRIDE
-    obs_frontend_push_ui_translation(obs_module_get_string);
-    addDevUI = new AddDevice(main_window);
-    obs_frontend_pop_ui_translation();
-
-    QAction *tools_menu_action = (QAction*)obs_frontend_add_tools_menu_qaction("DroidCam");
-    tools_menu_action->connect(tools_menu_action, &QAction::triggered, [] () {
-        addDevUI->ShowHideDevicePicker(1);
-    });
-    #endif
-
-    return true;
-}
-
-void obs_module_unload(void) {
 }

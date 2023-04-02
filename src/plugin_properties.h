@@ -38,25 +38,6 @@
 #define DEFAULT_PORT 4747
 #define DROIDCAM_SERVICE_NAME "_droidcamobs._tcp.local."
 
-enum class DeviceType {
-    NONE,
-    WIFI,
-    ADB,
-    IOS,
-    MDNS,
-};
-
-struct active_device_info {
-    DeviceType type;
-    int port;
-    const char *id;
-    const char *ip;
-};
-
-enum VideoFormat {
-    FORMAT_AVC,
-    FORMAT_MJPG,
-};
 
 #ifdef __GNUC__
 #pragma GCC diagnostic push
@@ -80,8 +61,6 @@ static const char* Resolutions[] = {
 #ifdef __GNUC__
 #pragma GCC diagnostic pop
 #endif
-
-void resolve_device_type(struct active_device_info*, void* data);
 
 static inline int getResolutionIndex(const char* resolution) {
     for (size_t i = 0; i < ARRAY_LEN(Resolutions); i++) {
