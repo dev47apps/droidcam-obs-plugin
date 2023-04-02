@@ -39,7 +39,7 @@ extern QMainWindow *main_window;
 #define NANO_SEC  1000000000
 
 // TODO: "PLUGIN" -> "SOURCE"
-#define PLUGIN_RUNNING() (os_event_try(plugin->stop_signal) == EAGAIN)
+#define SOURCE_EXISTS() (os_event_try(plugin->stop_signal) == EAGAIN)
 
 struct droidcam_obs_plugin {
     AdbMgr *adbMgr;
@@ -225,7 +225,7 @@ static void *video_decode_thread(void *data) {
 
     ilog("video_decode_thread start");
 
-    while (PLUGIN_RUNNING()) {
+    while (SOURCE_EXISTS()) {
         if ((decoder = plugin->video_decoder) == NULL || (data_packet = decoder->pull_ready_packet()) == NULL) {
             os_sleep_ms(5);
             continue;
@@ -359,7 +359,7 @@ static void *video_thread(void *data) {
         }
     }
 
-    while (PLUGIN_RUNNING()) {
+    while (SOURCE_EXISTS()) {
         if (plugin->activated && plugin->is_showing) {
             if (plugin->video_running) {
                 if (os_event_try(plugin->reset_signal) == EAGAIN
@@ -434,7 +434,7 @@ static void *video_thread(void *data) {
                 droidcam_signal(plugin->source, "droidcam_disconnect");
 
             while (plugin->video_decoder->recieveQueue.items.size() < plugin->video_decoder->alloc_count
-                    && PLUGIN_RUNNING())
+                    && SOURCE_EXISTS())
             {
                 dlog("waiting for decode thread: %lu/%lu",
                     plugin->video_decoder->recieveQueue.items.size(),
@@ -532,7 +532,7 @@ static void *audio_thread(void *data) {
     const char *audio_req = AUDIO_REQ;
 
     ilog("audio_thread start");
-    while (PLUGIN_RUNNING()) {
+    while (SOURCE_EXISTS()) {
         if (plugin->activated && plugin->is_showing && plugin->enable_audio) {
             if (plugin->audio_running) {
                 if (do_audio_frame(plugin, sock)) {
