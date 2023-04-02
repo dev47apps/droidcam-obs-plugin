@@ -47,7 +47,6 @@ void droidcam_signal(obs_source_t* source, const char* signal) {
     calldata_t cd;
     calldata_init(&cd);
     calldata_set_ptr(&cd, "source", source);
-    dlog("droidcam_signal->%s", signal);
     signal_handler_signal(obs_get_signal_handler(), signal, &cd);
     calldata_free(&cd);
 }

@@ -30,8 +30,8 @@ public:
     QSvgWidget loadingSvg;
     QIcon phoneIcon;
     void *dummy_droidcam_source;
+    void *dummy_source_context;
     void *dummy_properties;
-    void *dummy_source_priv_data;
     bool enable_audio;
     int refresh_count;
     std::unique_ptr<Ui_AddDeviceDC> ui;

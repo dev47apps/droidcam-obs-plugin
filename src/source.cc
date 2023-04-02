@@ -19,6 +19,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <util/platform.h>
 
 #if (DROIDCAM_OVERRIDE) || (ENABLE_GUI)
+#include "obs.hpp"
 #include <QMainWindow>
 #include <QMessageBox>
 extern QMainWindow *main_window;
@@ -68,6 +69,7 @@ struct droidcam_obs_plugin {
     struct obs_source_audio obs_audio_frame;
     struct obs_source_frame2 obs_video_frame;
     uint64_t time_start;
+    std::vector<OBSSignal> signal_handlers;
 };
 
 static socket_t connect(struct droidcam_obs_plugin *plugin) {
@@ -625,6 +627,12 @@ void source_destroy(void *data) {
     }
 }
 
+static const char *droidcam_signals[] = {
+    "void droidcam_source_status(in out int status)",
+    "void droidcam_source_context(in out ptr context)",
+    NULL,
+};
+
 void *source_create(obs_data_t *settings, obs_source_t *source) {
     ilog("Source: \"%s\" - " PLUGIN_VERSION_STR, obs_source_get_name(source));
     obs_source_set_async_unbuffered(source, true);
@@ -646,6 +654,29 @@ void *source_create(obs_data_t *settings, obs_source_t *source) {
     plugin->deactivateWNS = obs_data_get_bool(settings, OPT_DEACTIVATE_WNS);
     plugin->activated = obs_data_get_bool(settings, OPT_IS_ACTIVATED);
     obs_data_set_string(settings, "remote_url", "");
+
+    #if DROIDCAM_OVERRIDE
+    plugin->deactivateWNS = true;
+    signal_handler_t *h = obs_source_get_signal_handler(source);
+    signal_handler_add_array(h, droidcam_signals);
+
+    plugin->signal_handlers.emplace_back(h, "droidcam_source_status",
+        [](void *data, calldata_t *cd) {
+            droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
+            int status = 0;
+            if (plugin->activated)     status |= 1;
+            if (plugin->video_running) status |= 2;
+            if (plugin->audio_running) status |= 4;
+            calldata_set_int(cd, "status", status);
+        }, plugin);
+
+    plugin->signal_handlers.emplace_back(h, "droidcam_source_context",
+        [](void *data, calldata_t *cd) {
+            calldata_set_ptr(cd, "context", data);
+        }, plugin);
+
+    #endif
+
     ilog("activated=%d, deactivateWNS=%d, is_showing=%d, enable_audio=%d",
         plugin->activated, plugin->deactivateWNS, plugin->is_showing, plugin->enable_audio);
     ilog("video_format=%s video_resolution=%s",
@@ -1020,7 +1051,9 @@ obs_properties_t *source_properties(void *data) {
 
     obs_properties_add_bool(ppts, OPT_ENABLE_AUDIO, TEXT_ENABLE_AUDIO);
     // obs_properties_add_bool(ppts, OPT_SYNC_AV, TEXT_SYNC_AV);
+    #if DROIDCAM_OVERRIDE==0
     obs_properties_add_bool(ppts, OPT_DEACTIVATE_WNS, TEXT_DWNS);
+    #endif
     obs_properties_add_bool(ppts, OPT_USE_HW_ACCEL, TEXT_USE_HW_ACCEL);
 
     if (activated) {

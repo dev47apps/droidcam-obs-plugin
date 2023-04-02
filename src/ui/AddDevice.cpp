@@ -109,6 +109,14 @@ AddDevice::AddDevice(QWidget *parent) : QDialog(parent),
         dummy_droidcam_source = obs_source_create_private("droidcam_obs", name, settings);
         dummy_properties = obs_source_properties((obs_source_t *) dummy_droidcam_source);
         obs_data_release(settings);
+
+        calldata_t cd;
+        calldata_init(&cd);
+        calldata_set_ptr(&cd, "context", nullptr);
+        signal_handler_signal(obs_source_get_signal_handler((obs_source_t *) dummy_droidcam_source),
+            "droidcam_source_context", &cd);
+        dummy_source_context = (void*)calldata_ptr(&cd, "context");
+        calldata_free(&cd);
     }
 }
 
@@ -259,11 +267,8 @@ void AddDevice::ReloadList() {
 void ReloadThread::run() {
     auto ppts = (obs_properties_t *) parent->dummy_properties;
     obs_property_t *p = obs_properties_get(ppts, OPT_REFRESH);
-    parent->dummy_source_priv_data = NULL;
 
-    if (p && obs_property_button_clicked(p, parent->dummy_droidcam_source)
-            && parent->dummy_source_priv_data /* set in the refresh handler */)
-    {
+    if (p && obs_property_button_clicked(p, parent->dummy_droidcam_source)) {
         obs_property_t *list = obs_properties_get(ppts, OPT_DEVICE_LIST);
         for (size_t i = 0; i < obs_property_list_item_count(list); i++) {
             const char *name = obs_property_list_item_name(list, i);
@@ -278,7 +283,7 @@ void ReloadThread::run() {
             info->id = value;
             info->port = DEFAULT_PORT;
             info->ip = "";
-            resolve_device_type(info, parent->dummy_source_priv_data);
+            resolve_device_type(info, parent->dummy_source_context);
             if (info->type != DeviceType::NONE && parent->isVisible())
                 emit AddListEntry(name, info);
         }
