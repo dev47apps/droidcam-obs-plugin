@@ -69,7 +69,9 @@ struct droidcam_obs_plugin {
     struct obs_source_audio obs_audio_frame;
     struct obs_source_frame2 obs_video_frame;
     uint64_t time_start;
+    #if DROIDCAM_OVERRIDE
     std::vector<OBSSignal> signal_handlers;
+    #endif
 };
 
 static socket_t connect(struct droidcam_obs_plugin *plugin) {
@@ -627,11 +629,13 @@ void source_destroy(void *data) {
     }
 }
 
+#if DROIDCAM_OVERRIDE
 static const char *droidcam_signals[] = {
     "void droidcam_source_status(in out int status)",
     "void droidcam_source_context(in out ptr context)",
     NULL,
 };
+#endif
 
 void *source_create(obs_data_t *settings, obs_source_t *source) {
     ilog("Source: \"%s\" - " PLUGIN_VERSION_STR, obs_source_get_name(source));
