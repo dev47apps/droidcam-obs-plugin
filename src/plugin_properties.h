@@ -33,7 +33,7 @@
 
 #define PING_REQ "GET /ping"
 #define AUDIO_REQ "GET /v1/audio.2"
-#define VIDEO_REQ "GET /v4/video/%s/%s/port/%d/client/%s/nonce/%d/"
+#define VIDEO_REQ "GET /v4/video/%s/%s/port/%d/os/%s/obs/%s/client/%s/nonce/%d/"
 
 #define DEFAULT_PORT 4747
 #define DROIDCAM_SERVICE_NAME "_droidcamobs._tcp.local."

@@ -39,6 +39,8 @@ extern QMainWindow *main_window;
 #define MILLI_SEC 1000
 #define NANO_SEC  1000000000
 
+extern char os_name_version[64];
+
 // TODO: "PLUGIN" -> "SOURCE"
 #define SOURCE_EXISTS() (os_event_try(plugin->stop_signal) == EAGAIN)
 
@@ -334,8 +336,8 @@ recv_video_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
 static void *video_thread(void *data) {
     droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
     socket_t sock = INVALID_SOCKET;
-    char remote_url[64];
-    char video_req[64];
+    char remote_url[256];
+    char video_req[256];
     int video_req_len = 0;
 
     ilog("video_thread start");
@@ -384,6 +386,8 @@ static void *video_thread(void *data) {
                 VideoFormatNames[plugin->video_format][1],
                 Resolutions[plugin->video_resolution],
                 plugin->usb_port,
+                os_name_version,
+                obs_get_version_string(),
                 #if DROIDCAM_OVERRIDE
                 obs_get_version_string(), 5912);
                 #else

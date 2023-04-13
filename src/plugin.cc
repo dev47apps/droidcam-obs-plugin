@@ -14,6 +14,10 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
+extern "C" {
+#include <libavcodec/avcodec.h>
+}
+
 #if DROIDCAM_OVERRIDE
 #define ENABLE_GUI 1
 #endif
@@ -62,6 +66,8 @@ static const char *plugin_getname(void *data) {
     #endif
 }
 
+
+char os_name_version[64];
 struct obs_source_info droidcam_obs_info;
 
 OBS_DECLARE_MODULE()
@@ -71,7 +77,14 @@ MODULE_EXPORT const char *obs_module_description(void) {
 }
 
 bool obs_module_load(void) {
+    memset(os_name_version, 0, sizeof(os_name_version));
     memset(&droidcam_obs_info, 0, sizeof(struct obs_source_info));
+
+    if (AV_VERSION_MAJOR(avcodec_version()) > LIBAVCODEC_VERSION_MAJOR) {
+        elog("droidcam_obs: libavcodec version %u is too high (<= %d required for this release).",
+            AV_VERSION_MAJOR(avcodec_version()), LIBAVCODEC_VERSION_MAJOR);
+        return false;
+    }
 
     droidcam_obs_info.id           = "droidcam_obs";
     droidcam_obs_info.type         = OBS_SOURCE_TYPE_INPUT;
@@ -110,6 +123,7 @@ bool obs_module_load(void) {
     });
     #endif
 
+    get_os_name_version(os_name_version, sizeof(os_name_version));
     return true;
 }
 

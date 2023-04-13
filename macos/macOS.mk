@@ -1,7 +1,7 @@
 # Variables with ?= can be overridden
 # Example: `ARCH=arm64 make `
 ARCH       ?= x86_64
-DEPS_DIR   ?= ../deps/28
+DEPS_DIR   ?= ../deps/29
 OBS_DIR    ?= $(DEPS_DIR)/src
 FFMPEG_DIR ?= $(DEPS_DIR)
 QT_DIR     ?= /usr/local/opt/qt6
@@ -26,17 +26,17 @@ INCLUDES += -I$(OBS_DIR)/libobs
 
 LDD_DIRS += -L$(JPEG_DIR)/lib
 LDD_DIRS += -L$(FFMPEG_DIR)/lib
-LDD_DIRS += -L$(DEPS_DIR)/lib
+LDD_DIRS += -F$(DEPS_DIR)/lib
 
-LDD_LIBS += -lobs.0
-LDD_LIBS += -lobs-frontend-api
-LDD_LIBS += -lavcodec.59 -lavformat.59 -lavutil.57
+LDD_LIBS += -framework Foundation
+LDD_LIBS += -framework QtCore
+LDD_LIBS += -framework QtGui
+LDD_LIBS += -framework QtSvg
+LDD_LIBS += -framework QtXml
+LDD_LIBS += -framework QtWidgets
+LDD_LIBS += -framework libobs
+LDD_LIBS += -lobs-frontend-api.1
+LDD_LIBS += -lavcodec -lavformat -lavutil
 LDD_LIBS += -lturbojpeg
-
-LDD_LIBS += $(DEPS_DIR)/lib/QtCore.framework/QtCore
-LDD_LIBS += $(DEPS_DIR)/lib/QtGui.framework/QtGui
-LDD_LIBS += $(DEPS_DIR)/lib/QtSvg.framework/QtSvg
-LDD_LIBS += $(DEPS_DIR)/lib/QtXml.framework/QtXml
-LDD_LIBS += $(DEPS_DIR)/lib/QtWidgets.framework/QtWidgets
 
 LDD_FLAG += -bundle

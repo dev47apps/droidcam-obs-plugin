@@ -1,9 +1,10 @@
 # Variables with ?= can be overridden
-# Example: `ALLOW_STATIC=no  make`
+# Example: `ALLOW_STATIC=yes  make`
 
 # Allow static linking some deps
-ALLOW_STATIC ?= yes
+ALLOW_STATIC ?= no
 
+# todo: use pkg-config
 # libimobiledevice
 IMOBILEDEV_DIR ?= /opt/libimobiledevice
 IMOBILEDEV_LIB ?= $(IMOBILEDEV_DIR)/lib

@@ -22,3 +22,5 @@ void droidcam_signal(obs_source_t* source, const char* signal);
 #else
 #define droidcam_signal(source, signal) /* */
 #endif
+
+void get_os_name_version(char *, size_t);

@@ -34,7 +34,7 @@ ifeq ($(UNAME),Darwin)
 include macos/macOS.mk
 
 run: debug
-	rm ~/Library/ApplicationSupport/obs-studio/logs/* && /Applications/OBS.app/Contents/MacOS/OBS
+	rm ~/Library/ApplicationSupport/obs-studio/logs/* && PATH='' /Applications/OBS.app/Contents/MacOS/OBS
 endif
 
 
