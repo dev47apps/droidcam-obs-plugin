@@ -335,10 +335,21 @@ recv_video_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
 
 static void *video_thread(void *data) {
     droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
+    const char *obs_version_str = obs_get_version_string();
     socket_t sock = INVALID_SOCKET;
     char remote_url[256];
     char video_req[256];
     int video_req_len = 0;
+
+    #if DROIDCAM_OVERRIDE
+    // todo: dont do this
+    char obs_version_str_flat[4];
+    obs_version_str_flat[0] = obs_version_str[0];
+    obs_version_str_flat[1] = obs_version_str[2];
+    obs_version_str_flat[2] = obs_version_str[4];
+    obs_version_str_flat[3] = 0;
+    #endif
+
 
     ilog("video_thread start");
 
@@ -387,11 +398,10 @@ static void *video_thread(void *data) {
                 Resolutions[plugin->video_resolution],
                 plugin->usb_port,
                 os_name_version,
-                obs_get_version_string(),
                 #if DROIDCAM_OVERRIDE
-                obs_get_version_string(), 5912);
+                "0", obs_version_str_flat, 5912);
                 #else
-                PLUGIN_VERSION_STR, 5912);
+                obs_version_str, PLUGIN_VERSION_STR, 5912);
                 #endif
 
             dlog("%s", video_req);
