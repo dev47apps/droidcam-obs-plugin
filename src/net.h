@@ -21,7 +21,7 @@
 
 bool net_init(void);
 void net_cleanup(void);
-bool net_close(socket_t sock);
+void net_close(socket_t sock);
 socket_t net_accept(socket_t sock);
 
 socket_t
@@ -53,6 +53,9 @@ net_send_all(socket_t sock, const void *buf, size_t len);
 
 int
 set_recv_timeout(socket_t sock, int tv_sec);
+
+int
+set_recv_buf_len(socket_t sock, int len);
 
 bool
 set_nonblock(socket_t sock, int nonblock);

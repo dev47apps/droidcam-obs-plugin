@@ -32,6 +32,7 @@
 #define TEXT_USE_HW_ACCEL   obs_module_text("AllowHWAccel")
 
 #define PING_REQ "GET /ping"
+#define BATT_REQ "GET /battery HTTP/1.1\r\n\r\n"
 #define AUDIO_REQ "GET /v1/audio.2"
 #define VIDEO_REQ "GET /v4/video/%s/%s/port/%d/os/%s/obs/%s/client/%s/nonce/%d/"
 

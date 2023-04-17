@@ -1,5 +1,5 @@
 1 VERSIONINFO
-FILEVERSION 2,1,0,0
+FILEVERSION 2,1,1,0
 BEGIN
   BLOCK "StringFileInfo"
   BEGIN
@@ -11,7 +11,7 @@ BEGIN
       VALUE "OriginalFilename", "droidcam-obs.dll"
       VALUE "ProductName", "DroidCam"
       VALUE "ProductVersion", "7"
-      VALUE "LegalCopyright", "DEV47APPS, 2022"
+      VALUE "LegalCopyright", "DEV47APPS, 2023"
     END
   END
 

@@ -73,6 +73,10 @@ int set_recv_timeout(socket_t sock, int tv_sec) {
         (char*)&timeout, sizeof(timeout));
 }
 
+int set_recv_buf_len(socket_t sock, int len) {
+    return setsockopt(sock, SOL_SOCKET, SO_RCVBUF, (char *) &len, sizeof(int));
+}
+
 socket_t
 net_listen(const char* addr, uint16_t port) {
     socket_t sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -229,8 +233,6 @@ net_connect(const char* host, uint16_t port) {
     do {
         socket_t sock = net_connect(addr, port);
         if (sock != INVALID_SOCKET) {
-            int len = 65536 * 4;
-            setsockopt(sock, SOL_SOCKET, SO_RCVBUF, (char *) &len, sizeof(int));
             set_recv_timeout(sock, 5);
             return sock;
         }
@@ -289,14 +291,14 @@ net_send_all(socket_t sock, const void *buf, size_t len) {
     return 1;
 }
 
-bool
+void
 net_close(socket_t sock)
 {
     shutdown(sock, SHUT_RDWR);
 #ifdef _WIN32
-    return !closesocket(sock);
+    closesocket(sock);
 #else
-    return !close(sock);
+    close(sock);
 #endif
 }
 

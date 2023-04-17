@@ -34,7 +34,7 @@ extern QMainWindow *main_window;
 #include "buffer_util.h"
 #include "device_discovery.h"
 
-#define PLUGIN_VERSION_STR "210"
+#define PLUGIN_VERSION_STR "211"
 #define FPS 25
 #define MILLI_SEC 1000
 #define NANO_SEC  1000000000
@@ -56,6 +56,7 @@ struct droidcam_obs_plugin {
     pthread_t audio_thread;
     pthread_t video_thread;
     pthread_t video_decode_thread;
+    pthread_t battery_thread;
     enum video_range_type range;
     bool is_showing;
     bool activated;
@@ -75,6 +76,15 @@ struct droidcam_obs_plugin {
     std::vector<OBSSignal> signal_handlers;
     #endif
 };
+
+static void signal_source_update(obs_source_t* source, const char* battery) {
+    signal_handler_t *h = obs_source_get_signal_handler(source);
+    calldata_t cd;
+    calldata_init(&cd);
+    calldata_set_string(&cd, "battery", battery);
+    signal_handler_signal(h, "droidcam_source_update", &cd);
+    calldata_free(&cd);
+}
 
 static socket_t connect(struct droidcam_obs_plugin *plugin) {
     Device* dev;
@@ -399,7 +409,7 @@ static void *video_thread(void *data) {
                 plugin->usb_port,
                 os_name_version,
                 #if DROIDCAM_OVERRIDE
-                "0", obs_version_str_flat, 5912);
+                "", obs_version_str_flat, 5912);
                 #else
                 obs_version_str, PLUGIN_VERSION_STR, 5912);
                 #endif
@@ -415,6 +425,7 @@ static void *video_thread(void *data) {
                 goto LOOP;
             }
 
+            set_recv_buf_len(sock, 65536 * 4);
             plugin->video_running = true;
             dlog("starting video via socket %d", sock);
 
@@ -617,6 +628,68 @@ static void *audio_thread(void *data) {
     return NULL;
 }
 
+static void *battery_thread(void *data) {
+    droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
+    socket_t sock = INVALID_SOCKET;
+    const char *battery_req = BATT_REQ;
+    uint8_t buf[4096];
+
+    ilog("battery_thread start");
+    while (os_event_timedwait(plugin->stop_signal, (30*MILLI_SEC)) != 0) {
+        #if DROIDCAM_OVERRIDE
+        if (plugin->activated && plugin->is_showing && plugin->video_running) {
+            if (sock == INVALID_SOCKET &&
+                (sock = connect(plugin)) == INVALID_SOCKET)
+                continue;
+
+            dlog("battery got socket: %d", sock);
+            if (net_send_all(sock, battery_req, sizeof(BATT_REQ)-1) <= 0) {
+                elog("send(/battery) failed");
+                goto CLOSE;
+            }
+
+            memset(buf, 0, sizeof(buf));
+
+            const size_t maxlen = sizeof(buf) - 4;
+            if (net_recv(sock, buf, maxlen) <= 0) {
+                elog("recv(/battery) failed");
+                goto CLOSE;
+            }
+
+            for (int i = 0; i < maxlen; i++) {
+                if (!(buf[i] == '\r' && buf[i+1] == '\n' && buf[i+2] == '\r' && buf[i+3] == '\n'))
+                    continue;
+
+                i += 4;
+                int start = i;
+                for (; i < maxlen && isdigit(buf[i]); i++);
+                if (i > start) {
+                    buf[i++] = '%';
+                    buf[i  ] = 0;
+                    signal_source_update(plugin->source, (const char*) &buf[start]);
+                }
+                break;
+            }
+
+            continue;
+        }
+        if (sock != INVALID_SOCKET) {
+            dlog("closing active battery socket %d", sock);
+            CLOSE:
+            net_close(sock);
+            sock = INVALID_SOCKET;
+
+            buf[0] = 0;
+            signal_source_update(plugin->source, (const char*) &buf[0]);
+        }
+        #endif /* DROIDCAM_OVERRIDE */
+    }
+
+    ilog("battery_thread end");
+    if (sock != INVALID_SOCKET) net_close(sock);
+    return NULL;
+}
+
 void source_destroy(void *data) {
     droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
     ilog("destroy: \"%s\"", obs_source_get_name(plugin->source));
@@ -628,6 +701,7 @@ void source_destroy(void *data) {
             pthread_join(plugin->video_thread, NULL);
             pthread_join(plugin->audio_thread, NULL);
 
+            pthread_join(plugin->battery_thread, NULL);
             pthread_join(plugin->video_decode_thread, NULL);
             os_event_destroy(plugin->stop_signal);
             os_event_destroy(plugin->reset_signal);
@@ -647,6 +721,7 @@ void source_destroy(void *data) {
 static const char *droidcam_signals[] = {
     "void droidcam_source_status(in out int status)",
     "void droidcam_source_context(in out ptr context)",
+    "void droidcam_source_update(string battery)",
     NULL,
 };
 #endif
@@ -750,6 +825,11 @@ void *source_create(obs_data_t *settings, obs_source_t *source) {
     }
 
     if (pthread_create(&plugin->video_decode_thread, NULL, video_decode_thread, plugin) != 0) {
+        source_destroy(plugin);
+        return NULL;
+    }
+
+    if (pthread_create(&plugin->battery_thread, NULL, battery_thread, plugin) != 0) {
         source_destroy(plugin);
         return NULL;
     }
