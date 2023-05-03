@@ -1,27 +1,25 @@
 #!/bin/bash
 set -e
+OK=0
+DIRS="
+$HOME/.config/obs-studio
+$HOME/snap/obs-studio/current/.config/obs-studio
+$HOME/.var/app/com.obsproject.Studio/config/obs-studio
+"
 
-if [ -d ~/snap/obs-studio/current/.config ]; then
-	set -x
-	mkdir -p           ~/snap/obs-studio/current/.config/obs-studio/plugins/
-	cp -R droidcam-obs ~/snap/obs-studio/current/.config/obs-studio/plugins/
-	exit
+for dir in $DIRS; do
+	if [ -d $dir ]; then
+		set -x
+		mkdir -p "${dir}/plugins/"
+		cp -R droidcam-obs "${dir}/plugins/"
+		set +x
+		OK=1
+	fi
+done
+
+if [ $OK == 0 ]; then
+	echo "OBS Studio config folder not found!"
+	echo "Checked:${DIRS}"
+	exit 1
 fi
-
-if [ -d ~/.config/obs-studio ]; then
-	set -x
-	mkdir -p ~/.config/obs-studio/plugins/
-	cp -R droidcam-obs ~/.config/obs-studio/plugins/
-	exit
-fi
-
-if [ -d ~/.var/app/com.obsproject.Studio/config/obs-studio ]; then
-	set -x
-	mkdir -p ~/.var/app/com.obsproject.Studio/config/obs-studio/plugins/
-	cp -R droidcam-obs ~/.var/app/com.obsproject.Studio/config/obs-studio/plugins/
-	exit
-fi
-
-echo "OBS Studio config folder not found."
-echo "Checked ~/.config/obs-studio, ~/snap/obs-studio/current/.config/obs-studio, and ~/.var/app/com.obsproject.Studio/config/obs-studio"
-exit 1
+echo "Done"
