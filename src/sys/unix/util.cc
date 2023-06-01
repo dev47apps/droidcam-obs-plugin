@@ -42,4 +42,30 @@ void get_os_name_version(char *out, size_t out_size) {
     }
 }
 
+#elif __linux__
+#include <stdio.h>
+#include <stdlib.h>
+
+void get_os_name_version(char *out, size_t out_size) {
+
+    // set the default
+    strncpy(out, "linux", out_size);
+
+    FILE *fp = fopen("/etc/os-release", "r");
+    if (!fp) {
+        dlog("/etc/os-release open failed");
+        return;
+    }
+
+    char line[256];
+    char distro[64];
+    while (fgets(line, sizeof(line), fp)) {
+        if (fscanf(fp, "ID=%64s", distro) == 1 && distro[0]) {
+            strncpy(out, distro, out_size);
+            break;
+        }
+    }
+
+    fclose(fp);
+}
 #endif
