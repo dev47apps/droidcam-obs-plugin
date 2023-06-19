@@ -43,7 +43,9 @@ AddDevice::AddDevice(QWidget *parent) : QDialog(parent),
         loadingSvg.load(path);
         bfree(file);
     }
+    #if QT_VERSION > QT_VERSION_CHECK(5, 14, 0)
     loadingSvg.renderer()->setAspectRatioMode(Qt::KeepAspectRatio);
+    #endif
     loadingSvg.renderer()->blockSignals(true);
     loadingSvg.setVisible(false);
 
