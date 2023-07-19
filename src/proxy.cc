@@ -78,7 +78,7 @@ struct proxy_conn {
 };
 
 #define BUF_SIZE 32768
-#ifdef TEST
+#ifdef DEBUG
 #define vlog dlog
 #else
 #define vlog(...)
@@ -86,13 +86,13 @@ struct proxy_conn {
 
 void* proxy_run(void *data) {
     fd_set set;
-    socket_t maxfd;
     std::vector<struct proxy_conn*> list;
     Proxy *proxy = (Proxy*) data;
 
     auto buffer = (uint8_t*) bmalloc(BUF_SIZE);
     FD_ZERO(&set);
-    maxfd = 0;
+
+    vlog("proxy thread active: port=%d", proxy->port_local);
 
     while (proxy->thread_active) {
         socket_t client = net_accept(proxy->proxy_sock);
@@ -126,8 +126,8 @@ void* proxy_run(void *data) {
                 set_recv_timeout(remote, 1);
                 list.push_back(new proxy_conn(client, remote));
 
-                FD_SET(client, &set); if (client > maxfd) maxfd = client;
-                FD_SET(remote, &set); if (remote > maxfd) maxfd = remote;
+                FD_SET(client, &set);
+                FD_SET(remote, &set);
             }
             else {
                 elog("proxy: remote connection failed");
@@ -143,8 +143,8 @@ void* proxy_run(void *data) {
         fd_set read_fds = set;
         struct timeval timeout;
         timeout.tv_sec = 0;
-        timeout.tv_usec = 5000;
-        int rc = select(maxfd+1, &read_fds, NULL, NULL, &timeout);
+        timeout.tv_usec = 256000;
+        int rc = select(FD_SETSIZE, &read_fds, NULL, NULL, &timeout);
         if (rc == 0)
             continue;
 
@@ -157,7 +157,7 @@ void* proxy_run(void *data) {
 
         vlog("select: %d read_fds", rc);
 
-        auto size = list.size();
+        //auto size = list.size();
         auto i = std::begin(list);
         while (i != std::end(list)) {
             int err = 0;
@@ -191,12 +191,13 @@ void* proxy_run(void *data) {
             else i++;
         }
 
-        if (size != list.size()) {
+        /*if (size != list.size()) {
+            maxfd = 0;
             for (auto elem : list) {
                 if (elem->client > maxfd) maxfd = elem->client;
                 if (elem->remote > maxfd) maxfd = elem->remote;
             }
-        }
+        }*/
     } // while(active)
 
     bfree(buffer);
@@ -209,5 +210,6 @@ void* proxy_run(void *data) {
         delete elem;
     }
 
+    vlog("proxy thread end");
     return 0;
 }
