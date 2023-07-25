@@ -77,11 +77,12 @@ struct droidcam_obs_plugin {
     #endif
 };
 
-static void signal_source_update(obs_source_t* source, const char* battery) {
+static void signal_source_update(obs_source_t* source, const char* battery_level, int battery_alert) {
     signal_handler_t *h = obs_source_get_signal_handler(source);
     calldata_t cd;
     calldata_init(&cd);
-    calldata_set_string(&cd, "battery", battery);
+    calldata_set_int(&cd, "battery_alert", battery_alert);
+    calldata_set_string(&cd, "battery_level", battery_level);
     signal_handler_signal(h, "droidcam_source_update", &cd);
     calldata_free(&cd);
 }
@@ -629,20 +630,23 @@ static void *audio_thread(void *data) {
 }
 
 static void *battery_thread(void *data) {
+    #if DROIDCAM_OVERRIDE
     droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
     socket_t sock = INVALID_SOCKET;
     const char *battery_req = BATT_REQ;
     uint8_t buf[4096];
+    const int WARN = 15;
+    int prevBattery = 100;
 
-    ilog("battery_thread start");
+    dlog("battery_thread start");
     while (os_event_timedwait(plugin->stop_signal, (30*MILLI_SEC)) != 0) {
-        #if DROIDCAM_OVERRIDE
-        if (plugin->activated && plugin->is_showing && plugin->video_running) {
-            if (sock == INVALID_SOCKET &&
-                (sock = connect(plugin)) == INVALID_SOCKET)
-                continue;
+        if (plugin->activated && plugin->video_running) {
+            if (sock == INVALID_SOCKET) {
+                if ((sock = connect(plugin)) == INVALID_SOCKET)
+                    continue;
+                set_recv_timeout(sock, 1);
+            }
 
-            dlog("battery got socket: %d", sock);
             if (net_send_all(sock, battery_req, sizeof(BATT_REQ)-1) <= 0) {
                 elog("send(/battery) failed");
                 goto CLOSE;
@@ -650,13 +654,31 @@ static void *battery_thread(void *data) {
 
             memset(buf, 0, sizeof(buf));
 
+            int i = 0;
             const size_t maxlen = sizeof(buf) - 4;
-            if (net_recv(sock, buf, maxlen) <= 0) {
-                elog("recv(/battery) failed");
+            while (i < maxlen) {
+                int rc = net_recv(sock, &buf[i], maxlen - i);
+                if (rc > 0) {
+                    i += rc;
+                    continue;
+                }
+
+                #if _WIN32
+                WSAErrno();
+                if (rc < 0 && (errno == WSAEWOULDBLOCK || errno == WSAETIMEDOUT))
+                    break;
+
+                #else
+                if (rc < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINPROGRESS))
+                    break;
+
+                #endif
+
+                elog("recv(/battery) failed: (%d) %s", errno, strerror(errno));
                 goto CLOSE;
             }
 
-            for (int i = 0; i < maxlen; i++) {
+            for (i = 0; i < maxlen; i++) {
                 if (!(buf[i] == '\r' && buf[i+1] == '\n' && buf[i+2] == '\r' && buf[i+3] == '\n'))
                     continue;
 
@@ -666,7 +688,13 @@ static void *battery_thread(void *data) {
                 if (i > start) {
                     buf[i++] = '%';
                     buf[i  ] = 0;
-                    signal_source_update(plugin->source, (const char*) &buf[start]);
+
+                    const char* value = (const char*) &buf[start];
+                    i = atoi(value);
+                    int alert = (prevBattery > WARN && i <= WARN);
+                    dlog("battery: '%s' (%d) prev=%d alert=%d", value, i, prevBattery, alert);
+                    signal_source_update(plugin->source, value, alert);
+                    prevBattery = i;
                 }
                 break;
             }
@@ -680,13 +708,13 @@ static void *battery_thread(void *data) {
             sock = INVALID_SOCKET;
 
             buf[0] = 0;
-            signal_source_update(plugin->source, (const char*) &buf[0]);
+            signal_source_update(plugin->source, (const char*) &buf[0], 0);
         }
-        #endif /* DROIDCAM_OVERRIDE */
     }
 
-    ilog("battery_thread end");
     if (sock != INVALID_SOCKET) net_close(sock);
+    #endif /* DROIDCAM_OVERRIDE */
+    dlog("battery_thread end");
     return NULL;
 }
 
