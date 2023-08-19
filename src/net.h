@@ -25,10 +25,13 @@ void net_close(socket_t sock);
 socket_t net_accept(socket_t sock);
 
 socket_t
-net_connect(struct addrinfo *addr, uint16_t port);
+net_connect(struct addrinfo *addr, struct sockaddr* bind_saddr, uint16_t port);
 
 socket_t
-net_connect(const char* host, uint16_t port);
+net_connect(const char* host, const char* bindIP, uint16_t port);
+
+inline socket_t
+net_connect(const char* host, uint16_t port) { return net_connect(host, NULL, port); }
 
 socket_t
 net_listen(const char* addr, uint16_t port);
@@ -59,3 +62,6 @@ set_recv_buf_len(socket_t sock, int len);
 
 bool
 set_nonblock(socket_t sock, int nonblock);
+
+struct sockaddr*
+net_sock_addr(const char* host);

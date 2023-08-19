@@ -134,8 +134,27 @@ net_accept(socket_t sock) {
     return accept(sock, NULL, 0);
 }
 
+struct sockaddr*
+net_sock_addr(const char* host) {
+    struct addrinfo hints = {0}, *addr = 0, *addrs = 0;
+
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP;
+
+    if (getaddrinfo(host, NULL, &hints, &addrs) != 0) {
+        WSAErrno();
+        elog("getaddrinfo failed (%d): %s", errno, strerror(errno));
+        return NULL;
+    }
+
+    addr = addrs;
+
+    return addr->ai_addr;
+}
+
 socket_t
-net_connect(struct addrinfo *addr, uint16_t port) {
+net_connect(struct addrinfo *addr, struct sockaddr* bind_saddr, uint16_t port) {
     struct sockaddr* ai_addr = addr->ai_addr;
     void *in_addr;
     int rc;
@@ -168,6 +187,17 @@ net_connect(struct addrinfo *addr, uint16_t port) {
         WSAErrno();
         elog("socket(): %s", strerror(errno));
         return INVALID_SOCKET;
+    }
+
+    if (bind_saddr && bind_saddr->sa_family == ai_addr->sa_family) {
+        const size_t addrlen = (bind_saddr->sa_family == AF_INET)
+            ? sizeof(struct sockaddr_in)
+            : sizeof(struct sockaddr_in6);
+
+        if (bind(sock, bind_saddr, addrlen) < 0) {
+            WSAErrno();
+            elog("bind failed: %s", strerror(errno));
+        }
     }
 
     struct timeval timeout;
@@ -215,8 +245,13 @@ net_connect(struct addrinfo *addr, uint16_t port) {
 }
 
 socket_t
-net_connect(const char* host, uint16_t port) {
-    dlog("connect: %s port %d", host, port);
+net_connect(const char* host, const char* bindIP, uint16_t port) {
+    dlog("connect: %s port %d / bindIP=%s", host, port, bindIP);
+
+    struct sockaddr* bind_saddr = NULL;
+    if (bindIP && bindIP[0]) {
+        bind_saddr = net_sock_addr(bindIP);
+    }
 
     struct addrinfo hints = {0}, *addr = 0, *addrs = 0;
     hints.ai_family = AF_UNSPEC;
@@ -231,7 +266,7 @@ net_connect(const char* host, uint16_t port) {
 
     addr = addrs;
     do {
-        socket_t sock = net_connect(addr, port);
+        socket_t sock = net_connect(addr, bind_saddr, port);
         if (sock != INVALID_SOCKET) {
             set_recv_timeout(sock, 5);
             return sock;

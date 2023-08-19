@@ -28,6 +28,7 @@ extern "C" {
 #include <QMessageBox>
 #include "obs-frontend-api.h"
 QMainWindow *main_window = NULL;
+void* obs_config_profile = NULL;
 
 #if DROIDCAM_OVERRIDE
 #include "AddDevice.h"
@@ -110,6 +111,7 @@ bool obs_module_load(void) {
 
     #if ENABLE_GUI
     main_window = (QMainWindow *)obs_frontend_get_main_window();
+    obs_config_profile = obs_frontend_get_profile_config();
     #endif
 
     #if DROIDCAM_OVERRIDE

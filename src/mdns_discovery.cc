@@ -96,12 +96,9 @@ query_callback(int sock, const struct sockaddr* from, size_t addrlen, mdns_entry
             break;
         }
         case AF_INET6: {
-            /*
             struct sockaddr_in6* sa = (struct sockaddr_in6*) from;
             in_addr = &(sa->sin6_addr);
-            break;*/
-            dlog("todo: ipv6 support");
-            return 0;
+            break;
         }
     }
 
@@ -239,6 +236,8 @@ void MDNS::DoReload(void) {
     size_t capacity = 2048;
     void* buffer = malloc(capacity * PARALLEL);
 
+    struct sockaddr* saddr = NULL;
+
     struct query {
         socket_t sock;
         void* buffer;
@@ -248,9 +247,30 @@ void MDNS::DoReload(void) {
     FD_ZERO(&set);
     memset(&socks, 0, sizeof(struct query) * PARALLEL);
 
+    if (bindIP && bindIP[0]) {
+        dlog("mDNS: bindIP=%s", bindIP);
+        saddr = net_sock_addr(bindIP);
+    }
+
     for (int i = 0; i < PARALLEL; i++) {
-        socket_t sock = (network_mask != 0) ?
-            find_sockaddr(network_mask) : mdns_socket_open_ipv4(NULL);
+        socket_t sock;
+
+        if (networkPrefix)
+        {
+            sock = find_sockaddr(networkPrefix);
+        }
+        else if (saddr && saddr->sa_family == AF_INET)
+        {
+            sock = mdns_socket_open_ipv4((struct sockaddr_in*) saddr);
+        }
+        else if (saddr && saddr->sa_family == AF_INET6)
+        {
+            sock = mdns_socket_open_ipv6((struct sockaddr_in6*) saddr);
+        }
+        else
+        {
+            sock = mdns_socket_open_ipv4(NULL);
+        }
 
         if (sock < 0) {
             elog("socket(): %s", strerror(errno));
@@ -276,7 +296,7 @@ void MDNS::DoReload(void) {
         uint64_t time_end = 1750 + (os_gettime_ns() / NS_MS_FACTOR);
         struct timeval timeout;
         timeout.tv_sec = 0;
-        timeout.tv_usec = 2000;
+        timeout.tv_usec = 150000;
 
         do {
             fd_set read_fds = set;

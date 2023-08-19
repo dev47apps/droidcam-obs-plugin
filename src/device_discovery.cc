@@ -459,7 +459,7 @@ USBMux::USBMux() : iproxy(this) {
      */
     mdns = new MDNS();
     mdns->suffix = "USB";
-    mdns->network_mask = 0xfea9; // 169.254/16
+    mdns->networkPrefix = 0xfea9; // 169.254/16
     return;
 #endif
 }
