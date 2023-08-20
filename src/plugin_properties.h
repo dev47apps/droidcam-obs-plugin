@@ -17,6 +17,7 @@
 #define OPT_ACTIVE_DEV_ID     "cur_dev_id"
 #define OPT_ACTIVE_DEV_IP     "cur_dev_ip"
 #define OPT_ACTIVE_DEV_TYPE   "cur_dev_type"
+#define OPT_UHD_UNLOCK        "uhd_unlock"
 #define OPT_DUMMY_SOURCE      "dummy_source"
 
 #define TEXT_DEVICE         obs_module_text("Device")
@@ -54,9 +55,12 @@ static const char* VideoFormatNames[][2] = {
 
 static const char* Resolutions[] = {
     "640x480",
-    "960x720",
+    "1024x768",
     "1280x720",
     "1920x1080",
+    "1920x1440",
+    "2560x1440",
+    "3840x2160",
 };
 
 #ifdef __GNUC__

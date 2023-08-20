@@ -1019,6 +1019,25 @@ static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
         }
 
         device_info->type = DeviceType::WIFI;
+        #if DROIDCAM_OVERRIDE==0
+        if (   (device_info->ip[0] == '4')
+            && (device_info->ip[1] == 'k' || device_info->ip[1] == 'K')
+            && (device_info->ip[2] == '\0'))
+        {
+            obs_data_set_bool(settings, OPT_UHD_UNLOCK, true);
+            obs_data_set_string(settings, OPT_WIFI_IP, "");
+
+            #if (DROIDCAM_OVERRIDE) || (ENABLE_GUI)
+            QString title = QString(obs_module_text("DroidCam"));
+            QString msg = QString(obs_module_text("UHDUnlocked"));
+            QMessageBox mb(QMessageBox::Information, title, msg,
+                QMessageBox::StandardButtons(QMessageBox::Ok), main_window);
+            mb.exec();
+            #endif
+
+            goto out;
+        }
+        #endif
     }
     else {
         resolve_device_type(device_info, data);
@@ -1130,18 +1149,24 @@ obs_properties_t *source_properties(void *data) {
     obs_properties_t *ppts = obs_properties_create();
     obs_property_t *cp;
     bool activated = false;
+    bool uhd_unlock = false;
 
     if (plugin) {
         obs_data_t *settings = obs_source_get_settings(plugin->source);
         activated = obs_data_get_bool(settings, OPT_IS_ACTIVATED);
+        #if DROIDCAM_OVERRIDE==0
+        uhd_unlock = obs_data_get_bool(settings, OPT_UHD_UNLOCK);
+        #endif
         obs_data_release(settings);
     }
 
-    dlog("plugin_properties: activated=%d", activated);
+    dlog("plugin_properties: activated=%d, uhd_unlock=%d", activated, uhd_unlock);
 
     cp = obs_properties_add_list(ppts, OPT_RESOLUTION, TEXT_RESOLUTION, OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
-    for (size_t i = 0; i < ARRAY_LEN(Resolutions); i++)
+    for (size_t i = 0; i < ARRAY_LEN(Resolutions); i++) {
         obs_property_list_add_int(cp, Resolutions[i], i);
+        if (!uhd_unlock && i == 3) break;
+    }
 
     obs_property_set_modified_callback2(cp, video_parms_changed, data);
 
@@ -1204,6 +1229,7 @@ obs_properties_t *source_properties(void *data) {
 
 void source_defaults(obs_data_t *settings) {
     obs_data_set_default_bool(settings, OPT_DUMMY_SOURCE, false);
+    obs_data_set_default_bool(settings, OPT_UHD_UNLOCK, false);
     obs_data_set_default_bool(settings, OPT_IS_ACTIVATED, false);
     obs_data_set_default_bool(settings, OPT_SYNC_AV, false);
     obs_data_set_default_bool(settings, OPT_USE_HW_ACCEL, true);
