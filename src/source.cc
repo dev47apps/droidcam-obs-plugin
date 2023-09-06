@@ -47,6 +47,7 @@ extern void* obs_config_profile;
 #define SOURCE_EXISTS() (os_event_try(plugin->stop_signal) == EAGAIN)
 
 struct droidcam_obs_plugin {
+    Tally_t tally;
     AdbMgr *adbMgr;
     USBMux *iosMgr;
     MDNS  *mdnsMgr;
@@ -55,10 +56,11 @@ struct droidcam_obs_plugin {
     obs_source_t *source;
     os_event_t *stop_signal;
     os_event_t *reset_signal;
+    os_event_t *comms_signal;
     pthread_t audio_thread;
     pthread_t video_thread;
     pthread_t video_decode_thread;
-    pthread_t battery_thread;
+    pthread_t comms_thread;
     enum video_range_type range;
     bool is_showing;
     bool activated;
@@ -77,8 +79,10 @@ struct droidcam_obs_plugin {
     #if DROIDCAM_OVERRIDE
     std::vector<OBSSignal> signal_handlers;
     #endif
+    Queue<CommsTask> comms_queue;
 };
 
+#if DROIDCAM_OVERRIDE
 static void signal_source_update(obs_source_t* source, const char* battery_level, int battery_alert) {
     signal_handler_t *h = obs_source_get_signal_handler(source);
     calldata_t cd;
@@ -88,6 +92,12 @@ static void signal_source_update(obs_source_t* source, const char* battery_level
     signal_handler_signal(h, "droidcam_source_update", &cd);
     calldata_free(&cd);
 }
+#endif
+
+#define comms_task(t) do {\
+    plugin->comms_queue.add_item(t);\
+    os_event_signal(plugin->comms_signal);\
+    } while(0)
 
 static socket_t connect(struct droidcam_obs_plugin *plugin) {
     Device* dev;
@@ -334,6 +344,7 @@ recv_video_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
         plugin->obs_video_frame.format = VIDEO_FORMAT_NONE;
         plugin->obs_video_frame.range  = VIDEO_RANGE_DEFAULT;
         if (init) {
+            comms_task(CommsTask::TALLY);
             droidcam_signal(plugin->source, "droidcam_connect");
         } else {
             elog("could not initialize decoder");
@@ -631,92 +642,156 @@ static void *audio_thread(void *data) {
     return NULL;
 }
 
-static void *battery_thread(void *data) {
-    #if DROIDCAM_OVERRIDE
+static int
+basic_http(socket_t sock, char* buf, const size_t maxlen, const char *request, const size_t len) {
+    if (net_send_all(sock, request, len) <= 0) {
+        return 0;
+    }
+
+    memset(buf, 0, maxlen);
+    int i = 0;
+    while (i < maxlen) {
+        int rc = net_recv(sock, &buf[i], maxlen - i);
+        if (rc > 0) {
+            i += rc;
+            continue;
+        }
+
+        #if _WIN32
+        WSAErrno();
+        if (rc < 0 && (errno == WSAEWOULDBLOCK || errno == WSAETIMEDOUT))
+            break;
+
+        #else
+        if (rc < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINPROGRESS))
+            break;
+
+        #endif
+
+        return 0;
+    }
+
+    for (i = 0; i < maxlen; i++) {
+        if (!(buf[i] == '\r' && buf[i+1] == '\n' && buf[i+2] == '\r' && buf[i+3] == '\n'))
+            continue;
+
+        return i+4;
+    }
+
+    return 0;
+}
+
+static void *comms_thread(void *data) {
     droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
     socket_t sock = INVALID_SOCKET;
+    char buf[4096] = {0};
+    const size_t maxlen = sizeof(buf) - 4;
+
+    #if DROIDCAM_OVERRIDE
     const char *battery_req = BATT_REQ;
-    uint8_t buf[4096];
     const int WARN = 15;
     int prevBattery = 100;
+    #endif /* DROIDCAM_OVERRIDE */
 
-    dlog("battery_thread start");
-    while (os_event_timedwait(plugin->stop_signal, (30*MILLI_SEC)) != 0) {
+    int event = 0;
+
+    dlog("comms_thread start");
+
+    while ((event = os_event_timedwait(plugin->comms_signal, (30*MILLI_SEC))) != EINVAL
+        && SOURCE_EXISTS())
+    {
+        os_event_reset(plugin->comms_signal);
+
         if (plugin->activated && plugin->video_running) {
+
             if (sock == INVALID_SOCKET) {
                 if ((sock = connect(plugin)) == INVALID_SOCKET)
                     continue;
                 set_recv_timeout(sock, 1);
             }
-
-            if (net_send_all(sock, battery_req, sizeof(BATT_REQ)-1) <= 0) {
-                elog("send(/battery) failed");
-                goto CLOSE;
-            }
-
-            memset(buf, 0, sizeof(buf));
-
-            int i = 0;
-            const size_t maxlen = sizeof(buf) - 4;
-            while (i < maxlen) {
-                int rc = net_recv(sock, &buf[i], maxlen - i);
-                if (rc > 0) {
-                    i += rc;
-                    continue;
-                }
-
-                #if _WIN32
-                WSAErrno();
-                if (rc < 0 && (errno == WSAEWOULDBLOCK || errno == WSAETIMEDOUT))
-                    break;
-
-                #else
-                if (rc < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINPROGRESS))
-                    break;
-
+        }
+        else {
+            if (sock != INVALID_SOCKET) {
+                #if DROIDCAM_OVERRIDE
+                prevBattery = 100;
+                buf[0] = 0;
+                signal_source_update(plugin->source, (const char*) &buf[0], 0);
                 #endif
 
-                elog("recv(/battery) failed: (%d) %s", errno, strerror(errno));
-                goto CLOSE;
+                CLOSE:
+                dlog("closing comms socket %d // (%d) %s", sock, errno, strerror(errno));
+                net_close(sock);
+                sock = INVALID_SOCKET;
             }
+        }
 
-            for (i = 0; i < maxlen; i++) {
-                if (!(buf[i] == '\r' && buf[i+1] == '\n' && buf[i+2] == '\r' && buf[i+3] == '\n'))
-                    continue;
+        if (sock == INVALID_SOCKET)
+            continue;
 
-                i += 4;
+        if (event == ETIMEDOUT) {
+            #if DROIDCAM_OVERRIDE
+            int i = basic_http(sock, buf, maxlen, battery_req, sizeof(BATT_REQ) - 1);
+            if (i > 0) {
                 int start = i;
                 for (; i < maxlen && isdigit(buf[i]); i++);
+
                 if (i > start) {
                     buf[i++] = '%';
                     buf[i  ] = 0;
 
                     const char* value = (const char*) &buf[start];
                     i = atoi(value);
-                    int alert = (prevBattery > WARN && i <= WARN);
-                    dlog("battery: '%s' (%d) prev=%d alert=%d", value, i, prevBattery, alert);
+                    const int alert = (prevBattery > WARN && i <= WARN);
+                    dlog("battery %d -> %d (%s) alert=%d", prevBattery, i, value, alert);
                     signal_source_update(plugin->source, value, alert);
                     prevBattery = i;
                 }
-                break;
             }
+            else goto CLOSE;
 
-            continue;
+            #endif // DROIDCAM_OVERRIDE
         }
-        if (sock != INVALID_SOCKET) {
-            dlog("closing active battery socket %d", sock);
-            CLOSE:
-            net_close(sock);
-            sock = INVALID_SOCKET;
 
-            buf[0] = 0;
-            signal_source_update(plugin->source, (const char*) &buf[0], 0);
+        CommsTask task;
+        const char *tally = NULL;
+
+        while ((task = plugin->comms_queue.next_item()) != CommsTask::NONE) {
+            if (task == CommsTask::TALLY) {
+                // consume all tally events and send the latest one
+                if (plugin->tally.on_program) {
+                    tally = "program";
+                }
+                else if (plugin->tally.on_preview) {
+                    tally = "preview";
+                }
+                else {
+                    tally = "idle";
+                }
+                dlog("comms: task (%d) // %s", task, tally);
+            }
         }
-    }
+
+        if (tally != NULL) {
+            int len = snprintf(buf, maxlen, TALLY_REQ, tally);
+            if (basic_http(sock, buf, maxlen, (const char*) &buf[0], len) > 0) {
+                dlog("comms: tally -> %s", tally);
+            }
+            else {
+                if (errno != 0) {
+                    // Try again if the request actually failed.
+                    // If there is no error, most likely the app closed the connection,
+                    // ie. tally is not supported (such as with old app versions).
+                    os_sleep_ms(MILLI_SEC * 5);
+                    comms_task(CommsTask::TALLY);
+                }
+                goto CLOSE;
+            }
+        }
+    } // while (SOURCE_EXISTS)
 
     if (sock != INVALID_SOCKET) net_close(sock);
-    #endif /* DROIDCAM_OVERRIDE */
-    dlog("battery_thread end");
+
+    dlog("comms_thread end");
     return NULL;
 }
 
@@ -731,10 +806,13 @@ void source_destroy(void *data) {
             pthread_join(plugin->video_thread, NULL);
             pthread_join(plugin->audio_thread, NULL);
 
-            pthread_join(plugin->battery_thread, NULL);
+            os_event_signal(plugin->comms_signal);
+            pthread_join(plugin->comms_thread, NULL);
             pthread_join(plugin->video_decode_thread, NULL);
+
             os_event_destroy(plugin->stop_signal);
             os_event_destroy(plugin->reset_signal);
+            os_event_destroy(plugin->comms_signal);
         }
 
         ilog("cleanup");
@@ -859,6 +937,11 @@ void *source_create(obs_data_t *settings, obs_source_t *source) {
         return NULL;
     }
 
+    if (os_event_init(&plugin->comms_signal, OS_EVENT_TYPE_MANUAL) != 0) {
+        source_destroy(plugin);
+        return NULL;
+    }
+
     if (pthread_create(&plugin->video_thread, NULL, video_thread, plugin) != 0) {
         source_destroy(plugin);
         return NULL;
@@ -869,7 +952,7 @@ void *source_create(obs_data_t *settings, obs_source_t *source) {
         return NULL;
     }
 
-    if (pthread_create(&plugin->battery_thread, NULL, battery_thread, plugin) != 0) {
+    if (pthread_create(&plugin->comms_thread, NULL, comms_thread, plugin) != 0) {
         source_destroy(plugin);
         return NULL;
     }
@@ -886,6 +969,9 @@ void *source_create(obs_data_t *settings, obs_source_t *source) {
 void source_show(void *data) {
     droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
     plugin->is_showing = true;
+
+    plugin->tally.on_preview = true;
+    comms_task(CommsTask::TALLY);
     dlog("source_show: is_showing=%d", plugin->is_showing);
 }
 
@@ -894,7 +980,21 @@ void source_hide(void *data) {
     if (plugin->deactivateWNS && plugin->activated)
         plugin->is_showing = false;
 
+    plugin->tally.on_preview = false;
+    comms_task(CommsTask::TALLY);
     dlog("source_hide: is_showing=%d", plugin->is_showing);
+}
+
+void source_show_main(void *data) {
+    droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
+    plugin->tally.on_program = true;
+    comms_task(CommsTask::TALLY);
+}
+
+void source_hide_main(void *data) {
+    droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
+    plugin->tally.on_program = false;
+    comms_task(CommsTask::TALLY);
 }
 
 static inline void toggle_ppts(obs_properties_t *ppts, bool enable) {

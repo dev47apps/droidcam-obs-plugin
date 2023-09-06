@@ -4,6 +4,9 @@
 void source_show(void *data);
 void source_hide(void *data);
 
+void source_show_main(void *data);
+void source_hide_main(void *data);
+
 void *source_create(obs_data_t *settings, obs_source_t *source);
 void source_destroy(void *data);
 
@@ -31,4 +34,14 @@ struct active_device_info {
 enum VideoFormat {
     FORMAT_AVC,
     FORMAT_MJPG,
+};
+
+struct Tally_t {
+    bool on_program = false;
+    bool on_preview = false;
+};
+
+enum class CommsTask {
+    NONE,
+    TALLY,
 };

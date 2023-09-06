@@ -95,6 +95,8 @@ bool obs_module_load(void) {
     droidcam_obs_info.destroy      = source_destroy;
     droidcam_obs_info.show         = source_show;
     droidcam_obs_info.hide         = source_hide;
+    droidcam_obs_info.activate     = source_show_main;
+    droidcam_obs_info.deactivate   = source_hide_main;
     droidcam_obs_info.update       = source_update;
     #if DROIDCAM_OVERRIDE
     droidcam_obs_info.icon_type    = OBS_ICON_TYPE_CAMERA;

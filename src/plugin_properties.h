@@ -34,6 +34,7 @@
 
 #define PING_REQ "GET /ping"
 #define BATT_REQ "GET /battery HTTP/1.1\r\n\r\n"
+#define TALLY_REQ "PUT /v1/tally/%s/ HTTP/1.1\r\n\r\n"
 #define AUDIO_REQ "GET /v1/audio.2"
 #define VIDEO_REQ "GET /v4/video/%s/%s/port/%d/os/%s/obs/%s/client/%s/nonce/%d/"
 
