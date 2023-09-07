@@ -48,9 +48,9 @@ extern void* obs_config_profile;
 
 struct droidcam_obs_plugin {
     Tally_t tally;
-    AdbMgr *adbMgr;
-    USBMux *iosMgr;
-    MDNS  *mdnsMgr;
+    AdbMgr adbMgr;
+    USBMux iosMgr;
+    MDNS mdnsMgr;
     Decoder* video_decoder;
     Decoder* audio_decoder;
     obs_source_t *source;
@@ -101,9 +101,9 @@ static void signal_source_update(obs_source_t* source, const char* battery_level
 
 static socket_t connect(struct droidcam_obs_plugin *plugin) {
     Device* dev;
-    AdbMgr* adbMgr = plugin->adbMgr;
-    USBMux* iosMgr = plugin->iosMgr;
-    MDNS  *mdnsMgr = plugin->mdnsMgr;
+    AdbMgr* adbMgr = &plugin->adbMgr;
+    USBMux* iosMgr = &plugin->iosMgr;
+    MDNS  *mdnsMgr = &plugin->mdnsMgr;
 
     struct active_device_info *device_info = &plugin->device_info;
 
@@ -383,16 +383,16 @@ static void *video_thread(void *data) {
     if (plugin->activated) {
         switch (plugin->device_info.type) {
             case DeviceType::MDNS:
-                plugin->mdnsMgr->Reload();
-                plugin->mdnsMgr->ResetIter();
+                plugin->mdnsMgr.Reload();
+                plugin->mdnsMgr.ResetIter();
                 break;
             case DeviceType::ADB:
-                plugin->adbMgr->Reload();
-                plugin->adbMgr->ResetIter();
+                plugin->adbMgr.Reload();
+                plugin->adbMgr.ResetIter();
                 break;
             case DeviceType::IOS:
-                plugin->iosMgr->Reload();
-                plugin->iosMgr->ResetIter();
+                plugin->iosMgr.Reload();
+                plugin->iosMgr.ResetIter();
                 break;
             case DeviceType::WIFI:
             case DeviceType::NONE:
@@ -818,9 +818,6 @@ void source_destroy(void *data) {
         ilog("cleanup");
         if (plugin->video_decoder) delete plugin->video_decoder;
         if (plugin->audio_decoder) delete plugin->audio_decoder;
-        if (plugin->adbMgr) delete plugin->adbMgr;
-        if (plugin->iosMgr) delete plugin->iosMgr;
-        if (plugin->mdnsMgr) delete plugin->mdnsMgr;
         delete plugin;
     }
 }
@@ -844,9 +841,6 @@ void *source_create(obs_data_t *settings, obs_source_t *source) {
     plugin->video_running = false;
     plugin->audio_decoder = NULL;
     plugin->video_decoder = NULL;
-    plugin->adbMgr = new AdbMgr();
-    plugin->iosMgr = new USBMux();
-    plugin->mdnsMgr = new MDNS();
     plugin->usb_port = 0;
     plugin->use_hw = obs_data_get_bool(settings, OPT_USE_HW_ACCEL);
     plugin->video_format = (VideoFormat) obs_data_get_int(settings, OPT_VIDEO_FORMAT);
@@ -862,7 +856,7 @@ void *source_create(obs_data_t *settings, obs_source_t *source) {
         dlog("BindIP (profile) = %s", bindIP);
 
         if (strcmp(bindIP, "default") != 0)
-            plugin->mdnsMgr->bindIP = bindIP;
+            plugin->mdnsMgr.bindIP = bindIP;
     }
     #endif
 
@@ -1014,9 +1008,9 @@ void resolve_device_type(struct active_device_info *device_info, void* data) {
     droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
 
     Device* dev;
-    AdbMgr* adbMgr = plugin->adbMgr;
-    USBMux* iosMgr = plugin->iosMgr;
-    MDNS  *mdnsMgr = plugin->mdnsMgr;
+    AdbMgr* adbMgr = &plugin->adbMgr;
+    USBMux* iosMgr = &plugin->iosMgr;
+    MDNS  *mdnsMgr = &plugin->mdnsMgr;
 
     dev = mdnsMgr->GetDevice(id);
     if (dev) {
@@ -1172,9 +1166,9 @@ static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
 static bool refresh_clicked(obs_properties_t *ppts, obs_property_t *p, void *data) {
     droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
     Device* dev;
-    AdbMgr *adbMgr = plugin->adbMgr;
-    USBMux* iosMgr = plugin->iosMgr;
-    MDNS  *mdnsMgr = plugin->mdnsMgr;
+    AdbMgr *adbMgr = &plugin->adbMgr;
+    USBMux* iosMgr = &plugin->iosMgr;
+    MDNS  *mdnsMgr = &plugin->mdnsMgr;
     obs_property_t *cp = obs_properties_get(ppts, OPT_CONNECT);
     obs_property_set_enabled(cp, false);
 
@@ -1280,9 +1274,9 @@ obs_properties_t *source_properties(void *data) {
     cp = obs_properties_get(ppts, OPT_DEVICE_LIST);
     if (plugin) {
         Device* dev;
-        AdbMgr *adbMgr = plugin->adbMgr;
-        USBMux* iosMgr = plugin->iosMgr;
-        MDNS  *mdnsMgr = plugin->mdnsMgr;
+        AdbMgr *adbMgr = &plugin->adbMgr;
+        USBMux* iosMgr = &plugin->iosMgr;
+        MDNS  *mdnsMgr = &plugin->mdnsMgr;
 
         adbMgr->ResetIter();
         while ((dev = adbMgr->NextDevice()) != NULL) {
