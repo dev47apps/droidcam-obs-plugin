@@ -43,10 +43,9 @@ extern QMainWindow *main_window;
 extern char os_name_version[64];
 extern void* obs_config_profile;
 
-// TODO: "PLUGIN" -> "SOURCE"
 #define SOURCE_EXISTS() (os_event_try(plugin->stop_signal) == EAGAIN)
 
-struct droidcam_obs_plugin {
+struct droidcam_obs_source {
     Tally_t tally;
     AdbMgr adbMgr;
     USBMux iosMgr;
@@ -99,7 +98,7 @@ static void signal_source_update(obs_source_t* source, const char* battery_level
     os_event_signal(plugin->comms_signal);\
     } while(0)
 
-static socket_t connect(struct droidcam_obs_plugin *plugin) {
+static socket_t connect(struct droidcam_obs_source *plugin) {
     Device* dev;
     AdbMgr* adbMgr = &plugin->adbMgr;
     USBMux* iosMgr = &plugin->iosMgr;
@@ -246,7 +245,7 @@ read_frame(Decoder *decoder, socket_t sock, int *has_config)
 }
 
 static void *video_decode_thread(void *data) {
-    droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
+    droidcam_obs_source *plugin = (droidcam_obs_source*)(data);
 
     Decoder *decoder = NULL;
     DataPacket* data_packet = NULL;
@@ -290,7 +289,7 @@ static void *video_decode_thread(void *data) {
 }
 
 static bool
-recv_video_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
+recv_video_frame(droidcam_obs_source *plugin, socket_t sock) {
     int has_config = 0;
     DataPacket* data_packet;
     Decoder *decoder = plugin->video_decoder;
@@ -358,7 +357,7 @@ recv_video_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
 }
 
 static void *video_thread(void *data) {
-    droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
+    droidcam_obs_source *plugin = (droidcam_obs_source*)(data);
     const char *obs_version_str = obs_get_version_string();
     socket_t sock = INVALID_SOCKET;
     char remote_url[256];
@@ -501,7 +500,7 @@ static void *video_thread(void *data) {
 }
 
 static bool
-do_audio_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
+do_audio_frame(droidcam_obs_source *plugin, socket_t sock) {
     FFMpegDecoder *decoder = (FFMpegDecoder*)plugin->audio_decoder;
     if (!decoder) {
         dlog("create audio decoder");
@@ -570,7 +569,7 @@ do_audio_frame(struct droidcam_obs_plugin *plugin, socket_t sock) {
 }
 
 static void *audio_thread(void *data) {
-    droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
+    droidcam_obs_source *plugin = (droidcam_obs_source*)(data);
     socket_t sock = INVALID_SOCKET;
     const char *audio_req = AUDIO_REQ;
 
@@ -682,7 +681,7 @@ basic_http(socket_t sock, char* buf, const size_t maxlen, const char *request, c
 }
 
 static void *comms_thread(void *data) {
-    droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
+    droidcam_obs_source *plugin = (droidcam_obs_source*)(data);
     socket_t sock = INVALID_SOCKET;
     char buf[4096] = {0};
     const size_t maxlen = sizeof(buf) - 4;
@@ -796,7 +795,7 @@ static void *comms_thread(void *data) {
 }
 
 void source_destroy(void *data) {
-    droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
+    droidcam_obs_source *plugin = (droidcam_obs_source*)(data);
     ilog("destroy: \"%s\"", obs_source_get_name(plugin->source));
 
     if (plugin) {
@@ -835,7 +834,7 @@ void *source_create(obs_data_t *settings, obs_source_t *source) {
     ilog("Source: \"%s\" - " PLUGIN_VERSION_STR, obs_source_get_name(source));
     obs_source_set_async_unbuffered(source, true);
 
-    droidcam_obs_plugin *plugin = new droidcam_obs_plugin();
+    droidcam_obs_source *plugin = new droidcam_obs_source();
     plugin->source = source;
     plugin->audio_running = false;
     plugin->video_running = false;
@@ -867,7 +866,7 @@ void *source_create(obs_data_t *settings, obs_source_t *source) {
 
     plugin->signal_handlers.emplace_back(h, "droidcam_source_status",
         [](void *data, calldata_t *cd) {
-            droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
+            droidcam_obs_source *plugin = (droidcam_obs_source*)(data);
             int status = 0;
             if (plugin->activated)     status |= 1;
             if (plugin->video_running) status |= 2;
@@ -961,7 +960,7 @@ void *source_create(obs_data_t *settings, obs_source_t *source) {
 }
 
 void source_show(void *data) {
-    droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
+    droidcam_obs_source *plugin = (droidcam_obs_source*)(data);
     plugin->is_showing = true;
 
     plugin->tally.on_preview = true;
@@ -970,7 +969,7 @@ void source_show(void *data) {
 }
 
 void source_hide(void *data) {
-    droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
+    droidcam_obs_source *plugin = (droidcam_obs_source*)(data);
     if (plugin->deactivateWNS && plugin->activated)
         plugin->is_showing = false;
 
@@ -980,13 +979,13 @@ void source_hide(void *data) {
 }
 
 void source_show_main(void *data) {
-    droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
+    droidcam_obs_source *plugin = (droidcam_obs_source*)(data);
     plugin->tally.on_program = true;
     comms_task(CommsTask::TALLY);
 }
 
 void source_hide_main(void *data) {
-    droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
+    droidcam_obs_source *plugin = (droidcam_obs_source*)(data);
     plugin->tally.on_program = false;
     comms_task(CommsTask::TALLY);
 }
@@ -1005,7 +1004,7 @@ void resolve_device_type(struct active_device_info *device_info, void* data) {
         return;
 
     const char *id = device_info->id;
-    droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
+    droidcam_obs_source *plugin = (droidcam_obs_source*)(data);
 
     Device* dev;
     AdbMgr* adbMgr = &plugin->adbMgr;
@@ -1046,7 +1045,7 @@ void resolve_device_type(struct active_device_info *device_info, void* data) {
 static bool video_parms_changed(void *data, obs_properties_t*, obs_property_t*,
                  obs_data_t *settings) {
 
-    droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
+    droidcam_obs_source *plugin = (droidcam_obs_source*)(data);
 
     int video_resolution = obs_data_get_int(settings, OPT_RESOLUTION);
     enum VideoFormat video_format = (VideoFormat) obs_data_get_int(settings, OPT_VIDEO_FORMAT);
@@ -1065,7 +1064,7 @@ static bool video_parms_changed(void *data, obs_properties_t*, obs_property_t*,
 }
 
 static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *data) {
-    droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
+    droidcam_obs_source *plugin = (droidcam_obs_source*)(data);
     struct active_device_info *device_info = &plugin->device_info;
 
     obs_data_t *settings = obs_source_get_settings(plugin->source);
@@ -1164,7 +1163,7 @@ static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
 }
 
 static bool refresh_clicked(obs_properties_t *ppts, obs_property_t *p, void *data) {
-    droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
+    droidcam_obs_source *plugin = (droidcam_obs_source*)(data);
     Device* dev;
     AdbMgr *adbMgr = &plugin->adbMgr;
     USBMux* iosMgr = &plugin->iosMgr;
@@ -1218,7 +1217,7 @@ static bool refresh_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
 }
 
 void source_update(void *data, obs_data_t *settings) {
-    droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
+    droidcam_obs_source *plugin = (droidcam_obs_source*)(data);
     plugin->deactivateWNS = obs_data_get_bool(settings, OPT_DEACTIVATE_WNS);
     plugin->enable_audio  = obs_data_get_bool(settings, OPT_ENABLE_AUDIO);
     plugin->use_hw = obs_data_get_bool(settings, OPT_USE_HW_ACCEL);
@@ -1239,7 +1238,7 @@ void source_update(void *data, obs_data_t *settings) {
 }
 
 obs_properties_t *source_properties(void *data) {
-    droidcam_obs_plugin *plugin = reinterpret_cast<droidcam_obs_plugin *>(data);
+    droidcam_obs_source *plugin = (droidcam_obs_source*)(data);
     obs_properties_t *ppts = obs_properties_create();
     obs_property_t *cp;
     bool activated = false;
