@@ -19,7 +19,11 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <util/threading.h>
 #include <util/platform.h>
 
-#if (DROIDCAM_OVERRIDE) || (ENABLE_GUI)
+#if DROIDCAM_OVERRIDE
+#define ENABLE_GUI 1
+#endif
+
+#if ENABLE_GUI
 #include "obs.hpp"
 #include <QMainWindow>
 #include <QMessageBox>
@@ -1072,6 +1076,9 @@ static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
     obs_property_set_enabled(cp, false);
 
     bool activated = obs_data_get_bool(settings, OPT_IS_ACTIVATED);
+    int video_resolution = obs_data_get_int(settings, OPT_RESOLUTION);
+    enum VideoFormat video_format = (VideoFormat) obs_data_get_int(settings, OPT_VIDEO_FORMAT);
+
     if (activated) {
         plugin->usb_port = 0;
         plugin->activated = false;
@@ -1081,6 +1088,17 @@ static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
         ilog("deactivate");
         goto out;
     }
+
+    #if ENABLE_GUI
+    if (video_format == FORMAT_MJPG && video_resolution > RESOLUTION_1080) {
+        QString title = QString(obs_module_text("DroidCam"));
+        QString msg = QString(obs_module_text("MJPEGLimit"));
+        QMessageBox mb(QMessageBox::Information, title, msg,
+            QMessageBox::StandardButtons(QMessageBox::Ok), main_window);
+        mb.exec();
+        goto out;
+    }
+    #endif
 
     device_info->type = DeviceType::NONE;
     device_info->id = obs_data_get_string(settings, OPT_DEVICE_LIST);
@@ -1100,7 +1118,7 @@ static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
         if (!device_info->ip || device_info->ip[0] == 0) {
             elog("target IP is empty");
 
-            #if (DROIDCAM_OVERRIDE) || (ENABLE_GUI)
+            #if ENABLE_GUI
             QString title = QString(obs_module_text("DroidCam"));
             QString msg = QString(obs_module_text("NoWifiIP"));
             QMessageBox mb(QMessageBox::Information, title, msg,
@@ -1120,7 +1138,7 @@ static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
             obs_data_set_bool(settings, OPT_UHD_UNLOCK, true);
             obs_data_set_string(settings, OPT_WIFI_IP, "");
 
-            #if (DROIDCAM_OVERRIDE) || (ENABLE_GUI)
+            #if ENABLE_GUI
             QString title = QString(obs_module_text("DroidCam"));
             QString msg = QString(obs_module_text("UHDUnlocked"));
             QMessageBox mb(QMessageBox::Information, title, msg,
@@ -1142,8 +1160,8 @@ static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
     }
 
     obs_property_set_description(cp, TEXT_DEACTIVATE);
-    plugin->video_format = (VideoFormat) obs_data_get_int(settings, OPT_VIDEO_FORMAT);
-    plugin->video_resolution = obs_data_get_int(settings, OPT_RESOLUTION);
+    plugin->video_format = video_format;
+    plugin->video_resolution = video_resolution;
 
     toggle_ppts(ppts, false);
     obs_data_set_string(settings, OPT_ACTIVE_DEV_ID, device_info->id);
@@ -1258,7 +1276,7 @@ obs_properties_t *source_properties(void *data) {
     cp = obs_properties_add_list(ppts, OPT_RESOLUTION, TEXT_RESOLUTION, OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
     for (size_t i = 0; i < ARRAY_LEN(Resolutions); i++) {
         obs_property_list_add_int(cp, Resolutions[i], i);
-        if (!uhd_unlock && i == 3) break;
+        if (!uhd_unlock && i == RESOLUTION_1080) break;
     }
 
     obs_property_set_modified_callback2(cp, video_parms_changed, data);

@@ -64,6 +64,8 @@ static const char* Resolutions[] = {
     "3840x2160",
 };
 
+#define RESOLUTION_1080 3
+
 #ifdef __GNUC__
 #pragma GCC diagnostic pop
 #endif
