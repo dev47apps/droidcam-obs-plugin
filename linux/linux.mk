@@ -24,7 +24,7 @@ else
 	LDD_DIRS += -L$(IMOBILEDEV_LIB)
 
 	LDD_LIBS += -lturbojpeg
-	LDD_LIBS += -limobiledevice
+	LDD_LIBS += -limobiledevice-1.0
 endif
 
 INCLUDES += -I$(IMOBILEDEV_DIR)/include
