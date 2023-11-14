@@ -1,4 +1,5 @@
 
+ifdef DROIDCAM_OVERRIDE
 INCLUDES += -Isrc/ui
 SRC      += src/ui/AddDevice.cpp
 SRC      += src/ui/moc_AddDevice.cpp
@@ -14,6 +15,8 @@ src/ui/moc_AddDevice.cpp: src/ui/AddDevice.h
 install: /opt/droidcam-obs-client/bin/64bit/droidcam
 	sudo cp $(LIB_DLL) /opt/droidcam-obs-client/obs-plugins/64bit/
 	sudo cp -R data/*  /opt/droidcam-obs-client/data/obs-plugins/droidcam-obs/
+
+endif
 
 $(eval $(call ADD_Lib,Qt5Core))
 $(eval $(call ADD_Lib,Qt5Gui))
