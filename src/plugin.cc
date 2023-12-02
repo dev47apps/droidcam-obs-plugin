@@ -26,9 +26,12 @@ extern "C" {
 #include <QAction>
 #include <QMainWindow>
 #include <QMessageBox>
+#include <util/config-file.h>
 #include "obs-frontend-api.h"
 QMainWindow *main_window = NULL;
-void* obs_config_profile = NULL;
+static char bindIP1[64] = { 0 };
+static char bindIP2[64] = { 0 };
+const char* bindIP = NULL;
 
 #if DROIDCAM_OVERRIDE
 #include "AddDevice.h"
@@ -67,6 +70,22 @@ static const char *plugin_getname(void *data) {
     #endif
 }
 
+static inline void swap_bindIP() {
+    config_t *obs_config_profile = obs_frontend_get_profile_config();
+    if (obs_config_profile) {
+        char *dest = bindIP == bindIP1 ? bindIP2 : bindIP1;
+        const char *ip = config_get_string(obs_config_profile, "Output", "BindIP");
+
+        if (strcmp(ip, "default") == 0) {
+            bindIP = NULL;
+        } else {
+            strncpy(dest, ip, sizeof(bindIP1));
+            bindIP = (const char*) dest;
+        }
+
+        dlog("bindIP <= %s", bindIP);
+    }
+}
 
 char os_name_version[64];
 struct obs_source_info droidcam_obs_info;
@@ -113,7 +132,15 @@ bool obs_module_load(void) {
 
     #if ENABLE_GUI
     main_window = (QMainWindow *)obs_frontend_get_main_window();
-    obs_config_profile = obs_frontend_get_profile_config();
+
+    obs_frontend_add_event_callback([] (enum obs_frontend_event event, void*) {
+        switch (event) {
+            case OBS_FRONTEND_EVENT_FINISHED_LOADING:
+            case OBS_FRONTEND_EVENT_PROFILE_CHANGED:
+                swap_bindIP();
+                break;
+        }
+    }, NULL);
     #endif
 
     #if DROIDCAM_OVERRIDE

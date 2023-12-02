@@ -86,7 +86,6 @@ struct Proxy {
 // MARK: WiFi MDNS
 struct MDNS : DeviceDiscovery {
     int networkPrefix = 0;
-    const char* bindIP = NULL;
     const char* suffix = "WIFI";
     void DoReload();
 };

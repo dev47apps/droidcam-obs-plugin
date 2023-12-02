@@ -227,6 +227,7 @@ int find_sockaddr(int network_mask) {
 }
 
 #define PARALLEL 3
+extern const char* bindIP;
 
 void MDNS::DoReload(void) {
     const char* service_name = DROIDCAM_SERVICE_NAME;

@@ -15,7 +15,6 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include <stdlib.h>
-#include <util/config-file.h>
 #include <util/threading.h>
 #include <util/platform.h>
 
@@ -45,7 +44,7 @@ extern QMainWindow *main_window;
 #define NANO_SEC  1000000000
 
 extern char os_name_version[64];
-extern void* obs_config_profile;
+extern const char* bindIP;
 
 #define SOURCE_EXISTS() (os_event_try(plugin->stop_signal) == EAGAIN)
 
@@ -113,13 +112,13 @@ static socket_t connect(struct droidcam_obs_source *plugin) {
     dlog("connect device: id=%s type=%d", device_info->id, (int) device_info->type);
 
     if (device_info->type == DeviceType::WIFI) {
-        return net_connect(device_info->ip, mdnsMgr->bindIP, device_info->port);
+        return net_connect(device_info->ip, bindIP, device_info->port);
     }
 
     if (device_info->type == DeviceType::MDNS) {
         dev = mdnsMgr->GetDevice(device_info->id);
         if (dev) {
-            return net_connect(dev->address, mdnsMgr->bindIP, device_info->port);
+            return net_connect(dev->address, bindIP, device_info->port);
         }
 
         mdnsMgr->Reload();
@@ -852,16 +851,6 @@ void *source_create(obs_data_t *settings, obs_source_t *source) {
     plugin->deactivateWNS = obs_data_get_bool(settings, OPT_DEACTIVATE_WNS);
     plugin->activated = obs_data_get_bool(settings, OPT_IS_ACTIVATED);
     obs_data_set_string(settings, "remote_url", "");
-
-    #if ENABLE_GUI
-    if (obs_config_profile) {
-        const char *bindIP = config_get_string((config_t *)obs_config_profile, "Output", "BindIP");
-        dlog("BindIP (profile) = %s", bindIP);
-
-        if (strcmp(bindIP, "default") != 0)
-            plugin->mdnsMgr.bindIP = bindIP;
-    }
-    #endif
 
     #if DROIDCAM_OVERRIDE
     plugin->deactivateWNS = true;
