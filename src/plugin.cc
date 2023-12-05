@@ -31,7 +31,6 @@ extern "C" {
 QMainWindow *main_window = NULL;
 static char bindIP1[64] = { 0 };
 static char bindIP2[64] = { 0 };
-const char* bindIP = NULL;
 
 #if DROIDCAM_OVERRIDE
 #include "AddDevice.h"
@@ -70,6 +69,7 @@ static const char *plugin_getname(void *data) {
     #endif
 }
 
+#if ENABLE_GUI
 static inline void swap_bindIP() {
     config_t *obs_config_profile = obs_frontend_get_profile_config();
     if (obs_config_profile) {
@@ -86,7 +86,9 @@ static inline void swap_bindIP() {
         dlog("bindIP <= %s", bindIP);
     }
 }
+#endif
 
+const char* bindIP = NULL;
 char os_name_version[64];
 struct obs_source_info droidcam_obs_info;
 
