@@ -43,6 +43,10 @@ AddDevice* addDevUI = NULL;
 #include "source.h"
 #include "plugin_properties.h"
 
+const char* bindIP = NULL;
+char os_name_version[64];
+struct obs_source_info droidcam_obs_info;
+
 #if DROIDCAM_OVERRIDE
 static const char *droidcam_signals[] = {
     "void droidcam_connect(ptr source)",
@@ -87,10 +91,6 @@ static inline void swap_bindIP() {
     }
 }
 #endif
-
-const char* bindIP = NULL;
-char os_name_version[64];
-struct obs_source_info droidcam_obs_info;
 
 OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE("droidcam-obs", "en-US")
