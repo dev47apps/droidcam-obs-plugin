@@ -16,7 +16,7 @@ SRC      += $(shell ls src/*.cc src/sys/unix/*.cc)
 
 .PHONY: run clean
 
-all: $(LIB_DLL)
+all: $(BUILD_DIR) $(LIB_DLL)
 debug: CXXFLAGS += -DDEBUG
 debug: all
 
@@ -37,6 +37,13 @@ run: debug
 	rm ~/Library/ApplicationSupport/obs-studio/logs/* && PATH='' /Applications/OBS.app/Contents/MacOS/OBS
 endif
 
+
+$(BUILD_DIR):
+	@[ -d "$(BUILD_DIR)" ] || {\
+		echo missing build directory: $(BUILD_DIR);\
+		echo use: mkdir $(BUILD_DIR);\
+		exit 1;\
+	}
 
 $(LIB_DLL): $(SRC)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(LDD_DIRS) $(LDD_LIBS) $(LDD_FLAG) $^ $(STATIC) -o $@
