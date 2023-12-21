@@ -20,6 +20,7 @@
 #   define PRIsizet PRIu32
 # endif
 # define PROCESS_NONE NULL
+# define CloseProcessHandle CloseHandle
   typedef HANDLE process_t;
   typedef DWORD exit_code_t;
 
@@ -36,6 +37,7 @@ static inline bool FileExists(const char *path) {
 # define PRIsizet "zu"
 # define PRIexitcode "d"
 # define PROCESS_NONE -1
+# define CloseProcessHandle(h) /* */
   typedef pid_t process_t;
   typedef int exit_code_t;
 

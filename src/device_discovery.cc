@@ -32,6 +32,7 @@ bool process_check_success(process_t proc, const char *name) {
     if (proc == PROCESS_NONE) {
         return false;
     }
+    bool rc = true;
     exit_code_t exit_code;
     if (!cmd_simple_wait(proc, &exit_code)) {
         if (exit_code != NO_EXIT_CODE) {
@@ -39,9 +40,11 @@ bool process_check_success(process_t proc, const char *name) {
         } else {
             elog("\"%s\" exited unexpectedly with %d", name, (int) exit_code);
         }
-        return false;
+        rc = false;
     }
-    return true;
+
+    CloseProcessHandle(proc);
+    return rc;
 }
 
 // serialize argv to string "[arg1], [arg2], [arg3]"
