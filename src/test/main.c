@@ -67,6 +67,16 @@ void test_adb(void) {
     if (count == 0) {
         elog("Failed: No devices found");
     }
+    else {
+        dlog("test_adb: found %d devices", count);
+        const char* serial = "empty1";
+        dev = adbMgr.GetDevice(serial, strlen(serial));
+
+        ilog("device '%s' returned %p @ %d", serial, dev, adbMgr.Iter());
+        if (!dev)           elog("Failed: Expected device '%s' was not loaded\n", serial);
+        if (!adbMgr.Iter()) elog("Failed: Expected device '%s' to update Iter\n", serial);
+    }
+
     dlog("~test_adb");
 }
 
@@ -136,6 +146,7 @@ void test_proxy(int proxy_port) {
 void test_ios(void) {
     ilog("test_ios()");
     int count = 0;
+    int usb_port = 0;
     Device* dev;
     USBMux iosMgr;
     iosMgr.Reload();
@@ -149,10 +160,10 @@ void test_ios(void) {
     if (count) {
         iosMgr.ResetIter();
         dev = iosMgr.NextDevice();
-        int sock = iosMgr.Connect(dev, 4747);
-        if (sock > 0) {
-            test_net(localhost_ip, iosMgr.iproxy.port_local);
-            test_proxy(iosMgr.iproxy.port_local);
+        int sock = iosMgr.Connect(dev, 4747, &usb_port);
+        if (sock > 0 && usb_port > 0) {
+            test_net(localhost_ip, usb_port);
+            test_proxy(usb_port);
             net_close(sock);
         }
         else {
@@ -172,7 +183,9 @@ int main(int argc, char** argv) {
     net_init();
     test_exec();
     test_adb();
+    #ifdef __APPLE__
     test_ios();
+    #endif
     test_net("1.1.1.1", 80);
     net_cleanup();
     return 0;

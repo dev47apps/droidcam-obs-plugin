@@ -18,6 +18,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 # include <sys/select.h>
 #endif
 #include <util/platform.h>
+#if defined(TEST)
+#include <util/bmem.h>
+#endif
 
 #include <vector>
 

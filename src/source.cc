@@ -133,7 +133,7 @@ static socket_t connect(struct droidcam_obs_source *plugin) {
                 goto out;
             }
 
-            int port_start = device_info->port + ((adbMgr->Iter()-1) * 10);
+            int port_start = device_info->port + (adbMgr->Iter() * 10);
             if (plugin->usb_port < port_start) {
                 plugin->usb_port = port_start;
             }

@@ -21,6 +21,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #ifndef _WIN32
 #include <dlfcn.h>
 #include <assert.h>
+#elif defined(TEST)
+#include <cassert>
 #endif
 
 #include "net.h"
@@ -126,15 +128,17 @@ Device* DeviceDiscovery::GetDevice(const char* serial, size_t length) {
         if (deviceList[i] == NULL)
             break;
 
-        if (strncmp(deviceList[i]->serial, serial, length) == 0)
+        if (strncmp(deviceList[i]->serial, serial, length) == 0) {
+            iter = i;
             return deviceList[i];
+        }
     }
     return NULL;
 }
 
 Device* DeviceDiscovery::AddDevice(const char* serial, size_t length) {
     if (GetDevice(serial, length)) {
-        elog("AddDevice: duplicate found");
+        elog("warn: duplicate device");
         return NULL;
     }
 
@@ -145,6 +149,8 @@ Device* DeviceDiscovery::AddDevice(const char* serial, size_t length) {
             return deviceList[i];
         }
     }
+
+    elog("warn: device list full");
     return NULL;
 }
 
@@ -251,8 +257,12 @@ AdbMgr::AdbMgr() {
 }
 
 AdbMgr::~AdbMgr() {
+
+#ifndef TEST
     if (adb_exe_local)
         bfree(adb_exe_local);
+
+#endif
 
 #if 0
     const char *ss[] = {"kill-server"};
@@ -313,7 +323,6 @@ void AdbMgr::DoReload(void) {
 
         Device *dev = AddDevice(p, len);
         if (!dev) {
-            elog("error adding device, device list is full?");
             break;
         }
 
@@ -327,6 +336,7 @@ void AdbMgr::DoReload(void) {
         len = sep - p;
         if (len <= 0) continue;
         if (len > (sizeof(Device::state)-1)) len = sizeof(Device::state)-1;
+        memset(dev->state, 0, sizeof(Device::state));
         memcpy(dev->state, p, len);
 
     } while ((p = strtok_r(NULL, "\n", &n)) != NULL);
@@ -382,7 +392,8 @@ USBMux::USBMux() : iproxy(this) {
     hModuleIDevice = NULL;
     usbmuxd_device_list = NULL;
 
-#ifdef _WIN32
+#ifdef TEST
+#elif defined(_WIN32)
     usbmuxd_dll = obs_module_file("usbmuxd.dll");
     idevice_dll = obs_module_file("imobiledevice.dll");
 
@@ -422,9 +433,9 @@ USBMux::USBMux() : iproxy(this) {
     #ifdef DEBUG
     usbmuxd_set_debug_level(9);
     #endif
-#endif
 
-#ifdef __linux__
+#elif defined(__linux__)
+
     // Check for usbmuxd presence
     const char *USBMUXD_VARIANTS[] = {
         "libusbmuxd.so",
@@ -451,6 +462,7 @@ USBMux::USBMux() : iproxy(this) {
 #endif
 
 #ifdef __APPLE__
+
     /*
      * The "correct" approach is to use usbmuxd just like Windows and Linux.
      * However, the macOS + iOS tether interface provides a very easy and an
@@ -477,7 +489,8 @@ USBMux::~USBMux() {
         usbmuxd_device_list_free(&usbmuxd_device_list);
     }
 
-#ifdef _WIN32
+#ifdef TEST
+#elif defined(_WIN32)
     if (usbmuxd_dll)
         bfree(usbmuxd_dll);
 
@@ -489,11 +502,11 @@ USBMux::~USBMux() {
 
     if (hModuleUsbmux)
         FreeLibrary(hModuleUsbmux);
-#endif
 
-#ifdef __linux__
+#elif defined(__linux__)
     if (hModuleUsbmux)
         dlclose(hModuleUsbmux);
+
 #endif
 
 #endif // __APPLE__
@@ -563,7 +576,6 @@ void USBMux::DoReload(void) {
         // Add device to the local (USBMux) list
         Device *dev = AddDevice(idev->serial, sizeof(Device::serial));
         if (!dev) {
-            elog("error adding device, device list is full?");
             break;
         }
 
@@ -598,7 +610,6 @@ void USBMux::DoReload(void) {
         assert(sizeof(usbmuxd_device_info_t::udid) < sizeof(Device::serial));
         Device *dev = AddDevice(idev->udid, sizeof(usbmuxd_device_info_t::udid));
         if (!dev) {
-            elog("error adding device, device list is full?");
             break;
         }
 

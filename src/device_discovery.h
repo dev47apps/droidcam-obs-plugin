@@ -2,7 +2,11 @@
 #pragma once
 #include <util/threading.h>
 
+#ifdef TEST
 #define DEVICES_LIMIT 8
+#else
+#define DEVICES_LIMIT 32
+#endif
 
 struct Device {
     char serial[80];
