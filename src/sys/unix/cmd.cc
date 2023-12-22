@@ -81,6 +81,23 @@ cmd_execute(const char *path, const char *const argv[], pid_t *pid, char* out, s
         }
         close(fd[0]);
         close(fd[1]);
+
+        // Clean up all inherited fds.
+        // https://stackoverflow.com/a/918469
+        const int fromfd = STDERR_FILENO + 1;
+
+        // cmake -
+        // CHECK_FUNCTION_EXISTS(closefrom HAVE_CLOSEFROM)
+        #ifdef HAVE_CLOSEFROM
+        closefrom(fromfd);
+        #else
+        int maxfd = sysconf(_SC_OPEN_MAX);
+        if (maxfd < fromfd) {
+            maxfd = 65536;
+        }
+        for (int i = fromfd; i < maxfd-1; i++) { close(i); }
+        #endif
+
         execvp(path, (char *const *)argv);
         if (errno == ENOENT)
             ret = PROCESS_ERROR_MISSING_BINARY;
