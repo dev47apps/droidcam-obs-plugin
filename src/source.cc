@@ -38,7 +38,7 @@ extern QMainWindow *main_window;
 #include "buffer_util.h"
 #include "device_discovery.h"
 
-#define PLUGIN_VERSION_STR "230"
+#define PLUGIN_VERSION_STR "231"
 #define FPS 25
 #define MILLI_SEC 1000
 #define NANO_SEC  1000000000

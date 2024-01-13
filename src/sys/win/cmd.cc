@@ -56,9 +56,6 @@ cmd_execute(const char *path, const char *const argv[], HANDLE *handle, char* ou
         si.hStdOutput = hChildStd_OUT_Wr;
         si.dwFlags |= STARTF_USESTDHANDLES;
     }
-    else {
-        flags |= DETACHED_PROCESS;
-    }
 
     char cmd[256];
     argv_to_string(argv, cmd, sizeof(cmd));
