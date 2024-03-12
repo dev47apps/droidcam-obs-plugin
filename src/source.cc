@@ -38,7 +38,7 @@ extern QMainWindow *main_window;
 #include "buffer_util.h"
 #include "device_discovery.h"
 
-#define PLUGIN_VERSION_STR "231"
+#define PLUGIN_VERSION_STR "232"
 #define FPS 25
 #define MILLI_SEC 1000
 #define NANO_SEC  1000000000
@@ -174,7 +174,7 @@ static socket_t connect(struct droidcam_obs_source *plugin) {
 }
 
 #define MAXCONFIG 1024
-#define MAXPACKET 1024 * 1024
+#define MAXPACKET 1024 * 1024 * 16
 static DataPacket*
 read_frame(Decoder *decoder, socket_t sock, int *has_config)
 {
