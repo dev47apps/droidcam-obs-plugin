@@ -436,6 +436,9 @@ USBMux::USBMux() : iproxy(this) {
 
 #elif defined(__linux__)
 
+    #ifdef ALLOW_STATIC
+    hModuleUsbmux = (void*)1;
+    #else
     // Check for usbmuxd presence
     const char *USBMUXD_VARIANTS[] = {
         "libusbmuxd.so",
@@ -455,6 +458,7 @@ USBMux::USBMux() : iproxy(this) {
         elog("usbmuxd not found, iOS USB support not available");
         return;
     }
+    #endif
 
     #ifdef DEBUG
     libusbmuxd_set_debug_level(9);
@@ -504,8 +508,14 @@ USBMux::~USBMux() {
         FreeLibrary(hModuleUsbmux);
 
 #elif defined(__linux__)
+
+    #ifdef ALLOW_STATIC
+    hModuleUsbmux = 0;
+    #else
     if (hModuleUsbmux)
         dlclose(hModuleUsbmux);
+
+    #endif
 
 #endif
 

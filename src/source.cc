@@ -24,6 +24,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #if ENABLE_GUI
 #include "obs.hpp"
+#include "obs-frontend-api.h"
 #include <QMainWindow>
 #include <QMessageBox>
 extern QMainWindow *main_window;
@@ -38,7 +39,7 @@ extern QMainWindow *main_window;
 #include "buffer_util.h"
 #include "device_discovery.h"
 
-#define PLUGIN_VERSION_STR "232"
+#define PLUGIN_VERSION_STR "233"
 #define FPS 25
 #define MILLI_SEC 1000
 #define NANO_SEC  1000000000
@@ -955,6 +956,27 @@ void *source_create(obs_data_t *settings, obs_source_t *source) {
 void source_show(void *data) {
     droidcam_obs_source *plugin = (droidcam_obs_source*)(data);
     plugin->is_showing = true;
+
+    #if ENABLE_GUI
+    obs_source_t *scene = obs_frontend_get_current_scene();
+    if (scene) {
+        obs_sceneitem_t *item = obs_scene_sceneitem_from_source(obs_scene_from_source(scene), plugin->source);
+        if (item) {
+            vec2 pos;
+            vec2 scale;
+            struct obs_sceneitem_crop crop;
+            obs_sceneitem_get_pos(item, &pos);
+            obs_sceneitem_get_crop(item, &crop);
+            obs_sceneitem_get_scale(item, &scale);
+            ilog("pos:%.0f,%.0f scale:%.1f,%.1f rot:%.1f crop:%d,%d; %d,%d",
+                pos.x, pos.y, scale.x, scale.y,
+                obs_sceneitem_get_rot(item),
+                crop.left, crop.top, crop.right, crop.bottom);
+            obs_sceneitem_release(item);
+        }
+        obs_source_release(scene);
+    }
+    #endif
 
     plugin->tally.on_preview = true;
     comms_task(CommsTask::TALLY);

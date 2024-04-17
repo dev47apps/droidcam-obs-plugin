@@ -24,6 +24,7 @@ define ADD_Lib =
 endef
 
 ifeq "$(ALLOW_STATIC)" "yes"
+	CXXFLAGS += -DALLOW_STATIC
 	INCLUDES += -I$(IMOBILEDEV_DIR)/include
 	INCLUDES += -I$(JPEG_DIR)/include
 
