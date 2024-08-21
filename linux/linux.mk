@@ -1,4 +1,5 @@
 # Variables with ?= can be overridden
+# Example: `LIBUSBMUXD=libusbmuxd-2.0  make`
 # Example: `ALLOW_STATIC=yes  make`
 
 ALLOW_STATIC ?= no    # Allow static linking some deps
@@ -16,6 +17,10 @@ JPEG_LIB ?= $(JPEG_DIR)/lib$(shell getconf LONG_BIT)
 LIBOBS_INCLUDES ?= /usr/include/obs
 FFMPEG_INCLUDES ?= /usr/include/ffmpeg
 
+# dynamic linking library names
+LIBTURBOJPEG   ?= libturbojpeg
+LIBUSBMUXD     ?= libusbmuxd
+LIBIMOBILEDEV  ?= libimobiledevice
 
 #
 define ADD_Lib =
@@ -34,8 +39,9 @@ ifeq "$(ALLOW_STATIC)" "yes"
 	STATIC += $(IMOBILEDEV_LIB)/libplist-2.0.a
 
 else
-$(eval	$(call ADD_Lib,libturbojpeg))
-$(eval	$(call ADD_Lib,libusbmuxd))
+$(eval	$(call ADD_Lib,$(LIBTURBOJPEG)))
+$(eval	$(call ADD_Lib,$(LIBUSBMUXD)))
+$(eval	$(call ADD_Lib,$(LIBIMOBILEDEV)))
 endif
 
 ifdef DROIDCAM_OVERRIDE

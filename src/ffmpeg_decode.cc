@@ -18,7 +18,6 @@
 
 #include "plugin.h"
 #include "ffmpeg_decode.h"
-#include <obs-ffmpeg-compat.h>
 #include <libavutil/channel_layout.h>
 
 #if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(58, 9, 100)
@@ -305,7 +304,7 @@ static inline enum speaker_layout convert_speaker_layout(int channels)
 
 DataPacket* FFMpegDecoder::pull_empty_packet(size_t size)
 {
-	size_t new_size = size + INPUT_BUFFER_PADDING_SIZE;
+	size_t new_size = size + AV_INPUT_BUFFER_PADDING_SIZE;
 	DataPacket* packet = Decoder::pull_empty_packet(new_size);
 	memset(packet->data, 0, new_size);
 	return packet;
