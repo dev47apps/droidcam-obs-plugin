@@ -35,6 +35,7 @@ ifeq "$(ALLOW_STATIC)" "yes"
 
 else
 $(eval	$(call ADD_Lib,libturbojpeg))
+	LDD_LIBS += -limobiledevice-1.0
 $(eval	$(call ADD_Lib,libusbmuxd))
 endif
 
@@ -52,4 +53,4 @@ INCLUDES += -I$(LIBOBS_INCLUDES)
 INCLUDES += -I$(FFMPEG_INCLUDES)
 
 LDD_LIBS += -lobs
-LDD_FLAG += -shared
+LDD_FLAG += $(LDFLAGS) -shared
