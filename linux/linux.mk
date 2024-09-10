@@ -16,6 +16,10 @@ JPEG_LIB ?= $(JPEG_DIR)/lib$(shell getconf LONG_BIT)
 LIBOBS_INCLUDES ?= /usr/include/obs
 FFMPEG_INCLUDES ?= /usr/include/ffmpeg
 
+# dynamic linking library names
+LIBTURBOJPEG_DYN_NAME ?= libturbojpeg
+LIBUSBMUXD_DYN_NAME ?= libusbmuxd
+LIBIMOBILEDEV_DYN_NAME ?= libimobiledevice
 
 #
 define ADD_Lib =
@@ -34,9 +38,9 @@ ifeq "$(ALLOW_STATIC)" "yes"
 	STATIC += $(IMOBILEDEV_LIB)/libplist-2.0.a
 
 else
-$(eval	$(call ADD_Lib,libturbojpeg))
-	LDD_LIBS += -limobiledevice-1.0
-$(eval	$(call ADD_Lib,libusbmuxd))
+$(eval	$(call ADD_Lib,$(LIBTURBOJPEG_DYN_NAME)))
+$(eval	$(call ADD_Lib,$(LIBUSBMUXD_DYN_NAME)))
+$(eval	$(call ADD_Lib,$(LIBIMOBILEDEV_DYN_NAME)))
 endif
 
 ifdef DROIDCAM_OVERRIDE
@@ -53,4 +57,4 @@ INCLUDES += -I$(LIBOBS_INCLUDES)
 INCLUDES += -I$(FFMPEG_INCLUDES)
 
 LDD_LIBS += -lobs
-LDD_FLAG += $(LDFLAGS) -shared
+LDD_FLAG += -shared
