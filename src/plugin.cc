@@ -86,8 +86,7 @@ static inline void swap_bindIP() {
             strncpy(dest, ip, sizeof(bindIP1));
             bindIP = (const char*) dest;
         }
-
-        dlog("bindIP <= %s", bindIP);
+        ilog("using bindIP '%s'", bindIP);
     }
 }
 #endif
@@ -157,6 +156,7 @@ bool obs_module_load(void) {
     #endif
 
     get_os_name_version(os_name_version, sizeof(os_name_version));
+    blog(LOG_INFO, "droidcam-obs module loaded (%s)", os_name_version);
     return true;
 }
 

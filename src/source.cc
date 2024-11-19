@@ -39,7 +39,7 @@ extern QMainWindow *main_window;
 #include "buffer_util.h"
 #include "device_discovery.h"
 
-#define PLUGIN_VERSION_STR "233"
+#define PLUGIN_VERSION_STR "234"
 #define FPS 25
 #define MILLI_SEC 1000
 #define NANO_SEC  1000000000
@@ -960,7 +960,7 @@ void source_show(void *data) {
     droidcam_obs_source *plugin = (droidcam_obs_source*)(data);
     plugin->is_showing = true;
 
-    #if ENABLE_GUI
+    #if defined(ENABLE_GUI) && LIBOBS_API_MAJOR_VER > 27
     obs_source_t *scene = obs_frontend_get_current_scene();
     if (scene) {
         obs_sceneitem_t *item = obs_scene_sceneitem_from_source(obs_scene_from_source(scene), plugin->source);
@@ -1143,6 +1143,7 @@ static bool connect_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
             goto out;
         }
 
+        ilog("target IP is '%s'", device_info->ip);
         device_info->type = DeviceType::WIFI;
         #if DROIDCAM_OVERRIDE==0
         if (   (device_info->ip[0] == '4')
@@ -1285,7 +1286,7 @@ obs_properties_t *source_properties(void *data) {
         obs_data_release(settings);
     }
 
-    dlog("plugin_properties: activated=%d, uhd_unlock=%d", activated, uhd_unlock);
+    ilog("source_properties: activated=%d, uhd_unlock=%d", activated, uhd_unlock);
 
     cp = obs_properties_add_list(ppts, OPT_RESOLUTION, TEXT_RESOLUTION, OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
     for (size_t i = 0; i < ARRAY_LEN(Resolutions); i++) {

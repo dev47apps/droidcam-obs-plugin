@@ -37,7 +37,7 @@ void get_os_name_version(char *out, size_t out_size) {
         int major = 0, minor = 0,
             count = sscanf(version, "Version %d.%d", &major, &minor);
         if (count == 2 && major > 0 && minor > 0) {
-            snprintf(out, out_size, "osx%d.%d", major, minor);
+            snprintf(out, out_size, "osx%d", major);//, minor);
         }
     }
 }
