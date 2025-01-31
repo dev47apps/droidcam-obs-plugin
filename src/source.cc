@@ -135,15 +135,17 @@ static socket_t connect(struct droidcam_obs_source *plugin) {
             }
 
             int port_start = device_info->port + (adbMgr->Iter() * 10);
+            int port_last = port_start + 8;
+
             if (plugin->usb_port < port_start) {
                 plugin->usb_port = port_start;
             }
-            else if (plugin->usb_port > (port_start + 8)) {
+            else if (plugin->usb_port > port_last) {
                 plugin->usb_port = port_start;
-                adbMgr->ClearForwards(dev);
+                adbMgr->ClearForwards(port_start, port_last);
             }
 
-            dlog("ADB: mapping %d -> %d\n", plugin->usb_port, device_info->port);
+            ilog("ADB: mapping %d -> %d [%s]", plugin->usb_port, device_info->port, device_info->id);
             if (!adbMgr->AddForward(dev, plugin->usb_port, device_info->port)) {
                 plugin->usb_port++;
                 goto out;
@@ -152,7 +154,7 @@ static socket_t connect(struct droidcam_obs_source *plugin) {
             socket_t rc = net_connect(localhost_ip, plugin->usb_port);
             if (rc != INVALID_SOCKET) return rc;
 
-            adbMgr->ClearForwards(dev);
+            adbMgr->ClearForwards(port_start, port_last);
             goto out;
         }
 
@@ -196,19 +198,25 @@ read_frame(Decoder *decoder, socket_t sock, int *has_config)
     len = buffer_read32be(&header[8]);
     // dlog("read_frame: header: pts=%llu len=%ld", pts, len);
 
+    if (len == NO_PTS) {
+        elog("stop/error from app side");
+        return NULL;
+    }
+
+    if (len == 0 || len > MAXPACKET) {
+        elog("read_frame: packet too large/empty: %ld", len);
+        return NULL;
+    }
+
+    // no pts = config packet
     if (pts == NO_PTS) {
         if (config_len != 0) {
              elog("double config ???");
              return NULL;
         }
 
-        if ((int)len == -1) {
-            elog("stop/error from app side");
-            return NULL;
-        }
-
-        if (len == 0 || len > MAXCONFIG) {
-            elog("config packet too large at %ld!", len);
+        if (len > MAXCONFIG) {
+            elog("read_frame: config packet too large at %ld!", len);
             return NULL;
         }
 
@@ -218,15 +226,10 @@ read_frame(Decoder *decoder, socket_t sock, int *has_config)
             return NULL;
         }
 
-        ilog("have config: %ld", len);
+        ilog("read_frame: got config: %ld", len);
         config_len = len;
         *has_config = 1;
         goto AGAIN;
-    }
-
-    if (len == 0 || len > MAXPACKET) {
-        elog("data packet too large at %ld!", len);
-        return NULL;
     }
 
     DataPacket* data_packet = decoder->pull_empty_packet(config_len + len);
@@ -1219,7 +1222,7 @@ static bool refresh_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
     while ((dev = adbMgr->NextDevice()) != NULL) {
         adbMgr->GetModel(dev);
         char *label = dev->model[0] != 0 ? dev->model : dev->serial;
-        dlog("ADB: label:%s serial:%s", label, dev->serial);
+        dlog("ADB: \"%s\" [%s]", label, dev->serial);
         size_t idx = obs_property_list_add_string(p, label, dev->serial);
         if (adbMgr->DeviceOffline(dev))
             obs_property_list_item_disable(p, idx, true);
@@ -1229,14 +1232,14 @@ static bool refresh_clicked(obs_properties_t *ppts, obs_property_t *p, void *dat
     while ((dev = iosMgr->NextDevice()) != NULL) {
         iosMgr->GetModel(dev);
         char *label = dev->model[0] != 0 ? dev->model : dev->serial;
-        dlog("IOS: handle:%d label:%s serial:%s", dev->handle, label, dev->serial);
+        dlog("IOS: handle:%d \"%s\" [%s]", dev->handle, label, dev->serial);
         obs_property_list_add_string(p, label, dev->serial);
     }
 
     mdnsMgr->ResetIter();
     while ((dev = mdnsMgr->NextDevice()) != NULL) {
         char *label = dev->model[0] != 0 ? dev->model : dev->serial;
-        dlog("MDNS: label:%s serial:%s", label, dev->serial);
+        dlog("MDNS: \"%s\" [%s]", label, dev->serial);
         obs_property_list_add_string(p, label, dev->serial);
     }
 

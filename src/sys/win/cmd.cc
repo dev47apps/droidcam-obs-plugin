@@ -59,7 +59,6 @@ cmd_execute(const char *path, const char *const argv[], HANDLE *handle, char* ou
 
     char cmd[256];
     argv_to_string(argv, cmd, sizeof(cmd));
-
     dlog("exec %s", cmd);
     if (!CreateProcessA(NULL, cmd, NULL, NULL, bInheritHandles, flags, NULL, NULL, &si, &pi)) {
         int error = GetLastError();
@@ -76,7 +75,7 @@ cmd_execute(const char *path, const char *const argv[], HANDLE *handle, char* ou
         // Read output
         DWORD n;
         BOOL bSuccess = FALSE;
-        int scratch[256];
+        char scratch[256];
 
         bSuccess = ReadFile(hChildStd_OUT_Rd, out, (DWORD)out_size, &n, NULL);
         if (!bSuccess || n >= out_size) {

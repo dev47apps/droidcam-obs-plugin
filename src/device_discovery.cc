@@ -189,11 +189,8 @@ adb_execute(const char *serial, const char *const adb_cmd[], size_t len, char *o
     cmd[len + i] = NULL;
 
     enum process_result r = cmd_execute(cmd[0], cmd, &process, output, out_size);
-    if (r != PROCESS_SUCCESS) {
-        process_print_error(r, cmd);
-        return PROCESS_NONE;
-    }
-    return process;
+    process_print_error(r, cmd);
+    return r == PROCESS_SUCCESS ? process : PROCESS_NONE;
 }
 
 AdbMgr::AdbMgr() {
@@ -235,7 +232,7 @@ AdbMgr::AdbMgr() {
         if (!adb_exe)
             continue;
 
-        ilog("checking %s", adb_exe);
+        ilog("trying '%s'", adb_exe);
         if (strncmp(adb_exe, "adb", 3) == 0 || FileExists(adb_exe)) {
             proc = adb_execute(NULL, version, ARRAY_LEN(version), NULL, 0);
             if (process_check_success(proc, "adb version")) {
@@ -374,14 +371,19 @@ bool AdbMgr::AddForward(Device *dev, int local_port, int remote_port) {
     return process_check_success(proc, "adb fwd");
 }
 
-void AdbMgr::ClearForwards(Device *dev) {
+// the 'adb forward --remove' command is device agnostic
+void AdbMgr::ClearForwards(int port_start, int port_last) {
     if (disabled) // adb.exe was not found
         return;
 
-    const char *serial = dev->serial;
-    const char *const cmd[] = {"forward", "--remove-all"};
-    process_t proc = adb_execute(serial, cmd, ARRAY_LEN(cmd), NULL, 0);
-    process_check_success(proc, "adb fwd clear");
+    char local[32] = {0};
+    const char *const cmd[] = {"forward", "--remove", local};
+
+    for (int port = port_start; port <= port_last; port++) {
+        snprintf(local, 32, "tcp:%d", port);
+        process_t proc = adb_execute(NULL, cmd, ARRAY_LEN(cmd), NULL, 0);
+        process_check_success(proc, "adb fwd remove");
+    }
     return;
 }
 

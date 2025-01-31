@@ -106,7 +106,7 @@ struct AdbMgr : DeviceDiscovery {
     void DoReload();
 
     bool AddForward(Device* dev, int local_port, int remote_port);
-    void ClearForwards(Device* dev);
+    void ClearForwards(int port_start, int port_last);
     void GetModel(Device* dev);
     bool DeviceOffline(Device *dev) {
         return memcmp(dev->state, "device", 6) != 0;
