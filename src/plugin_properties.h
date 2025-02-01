@@ -3,7 +3,7 @@
 #define OPT_VERSION           "version"
 #define OPT_WIFI_IP           "wifi_ip"
 #define OPT_APP_PORT          "app_port"
-#define OPT_RESOLUTION        "resolution"
+#define OPT_RESOLUTION_STR    "resolution_str"
 #define OPT_VIDEO_FORMAT      "video_format"
 #define OPT_CONNECT           "connect"
 #define OPT_REFRESH           "refresh"
@@ -35,8 +35,8 @@
 #define PING_REQ "GET /ping"
 #define BATT_REQ "GET /battery HTTP/1.1\r\n\r\n"
 #define TALLY_REQ "PUT /v1/tally/%s/ HTTP/1.1\r\n\r\n"
-#define AUDIO_REQ "GET /v1/audio.2"
-#define VIDEO_REQ "GET /v4/video/%s/%s/port/%d/os/%s/obs/%s/client/%s/nonce/%d/"
+#define AUDIO_REQ "GET /v2/audio"
+#define VIDEO_REQ "GET /v5/video/%s/%dx%d/port/%d/os/%s/obs/%s/client/%s/nonce/%d/"
 
 #define DEFAULT_PORT 4747
 #define DROIDCAM_SERVICE_NAME "_droidcamobs._tcp.local."
@@ -69,6 +69,24 @@ static const char* Resolutions[] = {
 #ifdef __GNUC__
 #pragma GCC diagnostic pop
 #endif
+extern int sscanf(const char*, const char*, ...);
+
+static inline bool ConvertRes(const char *res, int* cx, int* cy)
+{
+    *cx = 0; *cy = 0;
+    return sscanf(res, "%dx%d", cx, cy) == 2;
+}
+
+static inline bool ResolutionValid(const char *res, int* cx, int* cy)
+{
+
+    const int MIN_WIDTH  = 600;
+    const int MIN_HEIGHT = 400;
+    const int MAX_WIDTH  = 4000;
+    const int MAX_HEIGHT = 3000;
+    return ConvertRes(res, cx, cy)
+        && (*cx > MIN_WIDTH && *cy > MIN_HEIGHT && *cx < MAX_WIDTH && *cy < MAX_HEIGHT);
+}
 
 static inline int getResolutionIndex(const char* resolution) {
     for (size_t i = 0; i < ARRAY_LEN(Resolutions); i++) {

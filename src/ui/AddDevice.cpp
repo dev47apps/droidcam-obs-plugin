@@ -423,7 +423,7 @@ void AddDevice::AddSourceInternal(DeviceInfo* device_info, const char* device_na
 
     obs_get_video_info(&ovi);
     snprintf(resolution, sizeof(resolution), "%dx%d", ovi.base_width, ovi.base_height);
-    obs_data_set_int(settings, OPT_RESOLUTION, getResolutionIndex(resolution));
+    obs_data_set_string(settings, OPT_RESOLUTION_STR, resolution);
 
     obs_data_set_bool(settings, OPT_ENABLE_AUDIO, enable_audio);
     obs_data_set_bool(settings, OPT_IS_ACTIVATED, true);
@@ -512,10 +512,10 @@ bool AddDevice::VideoReset(obs_scene_t*, obs_sceneitem_t *item, void *data) {
 
         obs_get_video_info(&ovi);
         snprintf(resolution, sizeof(resolution), "%dx%d", ovi.base_width, ovi.base_height);
-        obs_data_set_int(settings, OPT_RESOLUTION, getResolutionIndex(resolution));
+        obs_data_set_string(settings, OPT_RESOLUTION_STR, resolution);
 
         auto ppts = obs_source_properties(source);
-        obs_property_modified(obs_properties_get(ppts, OPT_RESOLUTION), settings);
+        obs_property_modified(obs_properties_get(ppts, OPT_RESOLUTION_STR), settings);
         obs_properties_destroy(ppts);
         obs_data_release(settings);
 
