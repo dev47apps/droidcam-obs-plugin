@@ -1,15 +1,17 @@
 
 ifdef DROIDCAM_OVERRIDE
+MOC      ?= /usr/lib/qt6/moc
+UIC      ?= /usr/lib/qt6/uic
 INCLUDES += -Isrc/ui
 SRC      += src/ui/AddDevice.cpp
 SRC      += src/ui/moc_AddDevice.cpp
 SRC      += src/ui/uic_AddDevice.h
 
 src/ui/uic_AddDevice.h: src/ui/AddDevice.ui
-	uic -o $@ $^
+	$(UIC) -o $@ $^
 
 src/ui/moc_AddDevice.cpp: src/ui/AddDevice.h
-	moc -o $@ $^
+	$(MOC) -o $@ $^
 
 .PHONY: install
 install: /opt/droidcam-obs-client/bin/64bit/droidcam
@@ -18,8 +20,9 @@ install: /opt/droidcam-obs-client/bin/64bit/droidcam
 
 endif
 
-$(eval $(call ADD_Lib,Qt5Core))
-$(eval $(call ADD_Lib,Qt5Gui))
-$(eval $(call ADD_Lib,Qt5Svg))
-$(eval $(call ADD_Lib,Qt5Widgets))
+$(eval $(call ADD_Lib,Qt6Core))
+$(eval $(call ADD_Lib,Qt6Gui))
+$(eval $(call ADD_Lib,Qt6Svg))
+$(eval $(call ADD_Lib,Qt6SvgWidgets))
+$(eval $(call ADD_Lib,Qt6Widgets))
 
