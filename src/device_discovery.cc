@@ -227,6 +227,14 @@ AdbMgr::AdbMgr() {
 
     disabled = 1;
 
+    #ifdef _WIN32
+    if (SetEnvironmentVariableA("ADB_MDNS", "0") == 0) elog("warn: setenv failed");
+    SetEnvironmentVariableA("ADB_MDNS_AUTO_CONNECT", "0");
+    #else
+    if (setenv("ADB_MDNS", "0", 1/* overwrite */) != 0) elog("warn: setenv failed");
+    setenv("ADB_MDNS_AUTO_CONNECT", "0", 1);
+    #endif
+
     for (size_t i = 0; i < ARRAY_LEN(ADB_VARIANTS); i++) {
         adb_exe = ADB_VARIANTS[i];
         if (!adb_exe)

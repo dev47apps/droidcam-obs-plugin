@@ -86,7 +86,7 @@ static inline void swap_bindIP() {
             strncpy(dest, ip, sizeof(bindIP1));
             bindIP = (const char*) dest;
         }
-        ilog("using bindIP '%s'", bindIP);
+        blog(LOG_INFO, "[droidcam-obs] using bindIP '%s'", bindIP);
     }
 }
 #endif
@@ -102,7 +102,7 @@ bool obs_module_load(void) {
     memset(&droidcam_obs_info, 0, sizeof(struct obs_source_info));
 
     if (AV_VERSION_MAJOR(avcodec_version()) > LIBAVCODEC_VERSION_MAJOR) {
-        elog("droidcam_obs: libavcodec version %u is too high (<= %d required for this release).",
+        blog(LOG_ERROR, "[droidcam-obs] libavcodec version %u is too high (<= %d required for this release).",
             AV_VERSION_MAJOR(avcodec_version()), LIBAVCODEC_VERSION_MAJOR);
         return false;
     }
@@ -156,7 +156,8 @@ bool obs_module_load(void) {
     #endif
 
     get_os_name_version(os_name_version, sizeof(os_name_version));
-    blog(LOG_INFO, "droidcam-obs module loaded (%s)", os_name_version);
+    blog(LOG_INFO, "[droidcam-obs] module loaded release %s (%s)",
+        PLUGIN_VERSION_STR, os_name_version);
     return true;
 }
 

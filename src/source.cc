@@ -39,7 +39,6 @@ extern QMainWindow *main_window;
 #include "buffer_util.h"
 #include "device_discovery.h"
 
-#define PLUGIN_VERSION_STR "234"
 #define FPS 25
 #define MILLI_SEC 1000
 #define NANO_SEC  1000000000
@@ -373,11 +372,11 @@ static void *video_thread(void *data) {
 
     #if DROIDCAM_OVERRIDE
     // todo: dont do this
-    char obs_version_str_flat[4];
-    obs_version_str_flat[0] = obs_version_str[0];
-    obs_version_str_flat[1] = obs_version_str[2];
-    obs_version_str_flat[2] = obs_version_str[4];
-    obs_version_str_flat[3] = 0;
+    char client_version_str[4];
+    client_version_str[0] = obs_version_str[0];
+    client_version_str[1] = obs_version_str[2];
+    client_version_str[2] = obs_version_str[4];
+    client_version_str[3] = 0;
     #endif
 
 
@@ -429,10 +428,11 @@ static void *video_thread(void *data) {
                 plugin->usb_port,
                 os_name_version,
                 #if DROIDCAM_OVERRIDE
-                "", obs_version_str_flat, 5912);
+                ""/*obs_version_str*/, client_version_str,
                 #else
-                obs_version_str, PLUGIN_VERSION_STR, 5912);
+                obs_version_str, PLUGIN_VERSION_STR,
                 #endif
+                5912/*NONCE*/);
 
             dlog("%s", video_req);
             if (net_send_all(sock, video_req, video_req_len) <= 0) {
