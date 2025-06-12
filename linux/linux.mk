@@ -29,14 +29,14 @@ define ADD_Lib =
 endef
 
 ifeq "$(ALLOW_STATIC)" "yes"
-	CXXFLAGS += -DALLOW_STATIC
-	INCLUDES += -I$(IMOBILEDEV_DIR)/include
-	INCLUDES += -I$(JPEG_DIR)/include
+CXXFLAGS += -DALLOW_STATIC=1
+INCLUDES += -I$(IMOBILEDEV_DIR)/include
+INCLUDES += -I$(JPEG_DIR)/include
 
-	STATIC += $(JPEG_LIB)/libturbojpeg.a
-	STATIC += $(IMOBILEDEV_LIB)/libimobiledevice.a
-	STATIC += $(IMOBILEDEV_LIB)/libusbmuxd.a
-	STATIC += $(IMOBILEDEV_LIB)/libplist-2.0.a
+STATIC += $(JPEG_LIB)/libturbojpeg.a
+STATIC += $(IMOBILEDEV_LIB)/libimobiledevice.a
+STATIC += $(IMOBILEDEV_LIB)/libusbmuxd.a
+STATIC += $(IMOBILEDEV_LIB)/libplist-2.0.a
 
 else
 $(eval	$(call ADD_Lib,$(LIBTURBOJPEG)))

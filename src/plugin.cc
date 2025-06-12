@@ -134,6 +134,11 @@ bool obs_module_load(void) {
     #if ENABLE_GUI
     main_window = (QMainWindow *)obs_frontend_get_main_window();
 
+    #ifdef __GNUC__
+    #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Wswitch"
+    #endif
+
     obs_frontend_add_event_callback([] (enum obs_frontend_event event, void*) {
         switch (event) {
             case OBS_FRONTEND_EVENT_FINISHED_LOADING:
@@ -142,6 +147,10 @@ bool obs_module_load(void) {
                 break;
         }
     }, NULL);
+
+    #ifdef __GNUC__
+    #pragma GCC diagnostic pop
+    #endif
     #endif
 
     #if DROIDCAM_OVERRIDE

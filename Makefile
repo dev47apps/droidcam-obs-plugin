@@ -4,6 +4,8 @@ DATA_DIR  ?= data
 BUILD_DIR ?= build
 LIB_DLL   ?= $(BUILD_DIR)/droidcam-obs.so
 
+MOC      ?= /usr/bin/moc
+UIC      ?= /usr/bin/uic
 RM       ?= rm -f
 CXX      ?= g++
 CXXFLAGS += -std=c++17 -Wall -fPIC
