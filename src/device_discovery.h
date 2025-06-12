@@ -119,6 +119,7 @@ struct AdbMgr : DeviceDiscovery {
 #ifndef __APPLE__
 #include <usbmuxd.h>
 #include <libimobiledevice/lockdown.h>
+#include "libimobiledevice_defines.h"
 #endif
 
 struct USBMux : DeviceDiscovery {

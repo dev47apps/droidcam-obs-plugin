@@ -196,6 +196,7 @@ adb_execute(const char *serial, const char *const adb_cmd[], size_t len, char *o
 AdbMgr::AdbMgr() {
     process_t proc;
     const char *version[] = {"version"};
+    char buf[256];
 
     #ifdef TEST
     adb_exe_local = NULL;
@@ -242,8 +243,9 @@ AdbMgr::AdbMgr() {
 
         ilog("trying '%s'", adb_exe);
         if (strncmp(adb_exe, "adb", 3) == 0 || FileExists(adb_exe)) {
-            proc = adb_execute(NULL, version, ARRAY_LEN(version), NULL, 0);
+            proc = adb_execute(NULL, version, ARRAY_LEN(version), buf, sizeof(buf));
             if (process_check_success(proc, "adb version")) {
+                dlog("> %.*s", 52, buf);
                 disabled = 0;
                 break;
             }
@@ -259,6 +261,7 @@ AdbMgr::AdbMgr() {
     const char *ss[] = {"start-server"};
     proc = adb_execute(NULL, ss, ARRAY_LEN(ss), NULL, 0);
     process_check_success(proc, "adb start-server");
+    ilog("adb found");
 }
 
 AdbMgr::~AdbMgr() {
@@ -403,9 +406,10 @@ USBMux::USBMux() : iproxy(this) {
     usbmuxd_device_list = NULL;
 
 #ifdef TEST
+
 #elif defined(_WIN32)
-    usbmuxd_dll = obs_module_file("usbmuxd.dll");
-    idevice_dll = obs_module_file("imobiledevice.dll");
+    usbmuxd_dll = obs_module_file("libusbmuxd-2.0.dll");
+    idevice_dll = obs_module_file("libimobiledevice-1.0.dll");
 
     if (!usbmuxd_dll) {
         elog("iOS USB support not available");
@@ -414,16 +418,15 @@ USBMux::USBMux() : iproxy(this) {
 
     SetDllDirectory(obs_get_module_data_path((obs_current_module())));
 
-    const char *errmsg = "Error loading dll, iOS USB support n/a";
     hModuleIDevice = LoadLibrary(idevice_dll);
     if (!hModuleIDevice) {
-        elog("%s (idevice_dll)", errmsg);
+        elog("LoadLibrary failed for %s, errno=%d", "idevice_dll", GetLastError());
         return;
     }
 
     hModuleUsbmux = LoadLibrary(usbmuxd_dll);
     if (!hModuleUsbmux) {
-        elog("%s (usbmuxd_dll", errmsg);
+        elog("LoadLibrary failed for %s, errno=%d", "usbmuxd_dll", GetLastError());
         return;
     }
 
@@ -443,6 +446,8 @@ USBMux::USBMux() : iproxy(this) {
     #ifdef DEBUG
     usbmuxd_set_debug_level(9);
     #endif
+    libusbmuxd_version_t usbmuxd_version = (libusbmuxd_version_t)GetProcAddress(hModuleUsbmux, "libusbmuxd_version");
+    ilog("usbmuxd version %.*s loaded", 8, usbmuxd_version());
 
 #elif defined(__linux__)
 
@@ -614,13 +619,13 @@ void USBMux::DoReload(void) {
         usbmuxd_device_list_free(&usbmuxd_device_list);
 
     int deviceCount = usbmuxd_get_device_list(&usbmuxd_device_list);
-    ilog("USBMux: found %d devices", deviceCount);
 
     if (deviceCount < 0) {
-        elog("Could not get iOS device list, is usbmuxd running?");
+        elog("Could not get iOS device list, is usbmuxd running? error=%d", deviceCount);
         return;
     }
 
+    ilog("USBMux: found %d devices", deviceCount);
     for (int i = 0; i < deviceCount; i++) {
         usbmuxd_device_info_t *idev = &usbmuxd_device_list[i];
         if (idev == NULL || idev->handle == 0) {
