@@ -9,6 +9,7 @@
 #define OPT_REFRESH           "refresh"
 #define OPT_DEACTIVATE_WNS    "deactivate_wns"
 #define OPT_SYNC_AV           "sync_av"
+#define OPT_USE_HDR           "allow_hdr"
 #define OPT_USE_HW_ACCEL      "allow_hw_accel"
 #define OPT_IS_ACTIVATED      "activated"
 #define OPT_ENABLE_AUDIO      "enable_aduio"
@@ -30,13 +31,14 @@
 #define TEXT_USE_WIFI       obs_module_text("UseWiFi")
 #define TEXT_ENABLE_AUDIO   obs_module_text("EnableAudio")
 #define TEXT_SYNC_AV        obs_module_text("SyncAV")
+#define TEXT_USE_HDR        obs_module_text("AllowHDR")
 #define TEXT_USE_HW_ACCEL   obs_module_text("AllowHWAccel")
 
 #define PING_REQ "GET /ping"
 #define BATT_REQ "GET /battery HTTP/1.1\r\n\r\n"
 #define TALLY_REQ "PUT /v1/tally/%s/ HTTP/1.1\r\n\r\n"
 #define AUDIO_REQ "GET /v2/audio"
-#define VIDEO_REQ "GET /v5/video/%s/%dx%d/port/%d/os/%s/obs/%s/client/%s/nonce/%d/"
+#define VIDEO_REQ "GET /v5/video/%s/%dx%d/port/%d/os/%s/obs/%s/client/%s/hdr/%d/nonce/%d/"
 
 #define DEFAULT_PORT 4747
 #define DROIDCAM_SERVICE_NAME "_droidcamobs._tcp.local."
@@ -52,6 +54,7 @@ static const char* localhost_ip = "127.0.0.1";
 static const char* VideoFormatNames[][2] = {
     {"AVC/H.264", "avc"},
     {"MJPEG", "jpg"},
+    {"HEVC/H.265", "hevc"},
 };
 
 static const char* Resolutions[] = {

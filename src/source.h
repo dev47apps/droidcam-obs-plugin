@@ -34,6 +34,7 @@ struct active_device_info {
 enum VideoFormat {
     FORMAT_AVC,
     FORMAT_MJPG,
+    FORMAT_HEVC,
 };
 
 struct Tally_t {

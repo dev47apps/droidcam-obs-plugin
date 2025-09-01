@@ -18,7 +18,10 @@
 
 #include "plugin.h"
 #include "ffmpeg_decode.h"
-#include <libavutil/channel_layout.h>
+extern "C" {
+ #include <libavutil/channel_layout.h>
+ #include <libavutil/pixdesc.h>
+}
 
 #if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(58, 9, 100)
 #error LIBAVCODEC VERSION 58,9,100 REQUIRED
@@ -35,8 +38,12 @@
 
 enum AVHWDeviceType hw_device_list[] = {
 	#ifdef _WIN32
+	#if LIBAVCODEC_VERSION_MAJOR > 60
+	AV_HWDEVICE_TYPE_D3D12VA,
+	#endif
 	AV_HWDEVICE_TYPE_D3D11VA,
 	AV_HWDEVICE_TYPE_CUDA,
+	AV_HWDEVICE_TYPE_DXVA2,
 	#endif
 
 	#ifdef __APPLE__
@@ -60,7 +67,6 @@ static AVPixelFormat has_hw_type(const AVCodec *c, enum AVHWDeviceType type)
 		}
 
 		if ((config->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX) && config->device_type == type) {
-			dlog("hw_pix_fmt=%d", config->pix_fmt);
 			return config->pix_fmt;
 		}
 	}
@@ -74,8 +80,8 @@ static void init_hw_decoder(FFMpegDecoder *d)
 	AVBufferRef *hw_ctx = NULL;
 
 	while (*hw_device_iter != AV_HWDEVICE_TYPE_NONE) {
-		dlog("trying hw device %d", *hw_device_iter);
 		d->hw_pix_fmt = has_hw_type(d->codec, *hw_device_iter);
+		dlog("trying hw %s => hw_pix_fmt=%d", av_hwdevice_get_type_name(*hw_device_iter), d->hw_pix_fmt);
 		if (d->hw_pix_fmt != AV_PIX_FMT_NONE) {
 			if (av_hwdevice_ctx_create(&hw_ctx, *hw_device_iter, NULL, NULL, 0) == 0)
 				break;
@@ -90,6 +96,11 @@ static void init_hw_decoder(FFMpegDecoder *d)
 		d->decoder->hw_device_ctx = av_buffer_ref(hw_ctx);
 		d->hw_ctx = hw_ctx;
 		d->hw = true;
+	} else {
+		enum AVHWDeviceType type = AV_HWDEVICE_TYPE_NONE;
+		ilog("hw accel not supported. available device types:");
+		while((type = av_hwdevice_iterate_types(type)) != AV_HWDEVICE_TYPE_NONE)
+			ilog(" %s", av_hwdevice_get_type_name(type));
 	}
 	ilog("use hw: %d", d->hw);
 }
@@ -218,12 +229,15 @@ static inline enum video_format convert_pixel_format(int f)
 	case AV_PIX_FMT_YUV422P:
 	case AV_PIX_FMT_YUVJ422P:
 		return VIDEO_FORMAT_I422;
-	case AV_PIX_FMT_RGBA:
-		return VIDEO_FORMAT_RGBA;
-	case AV_PIX_FMT_BGRA:
-		return VIDEO_FORMAT_BGRA;
-	case AV_PIX_FMT_BGR0:
-		return VIDEO_FORMAT_BGRX;
+
+	#if LIBOBS_API_MAJOR_VER >= 28
+	case AV_PIX_FMT_YUV420P10LE:
+		return VIDEO_FORMAT_I010;
+	case AV_PIX_FMT_P010LE:
+		return VIDEO_FORMAT_P010;
+	case AV_PIX_FMT_YUV422P10LE:
+		return VIDEO_FORMAT_I210;
+	#endif
 	}
 
 	return VIDEO_FORMAT_NONE;
@@ -231,7 +245,7 @@ static inline enum video_format convert_pixel_format(int f)
 
 static enum video_colorspace
 convert_color_space(enum AVColorSpace s, enum AVColorTransferCharacteristic trc,
-		    enum AVColorPrimaries color_primaries)
+					enum AVColorPrimaries color_primaries)
 {
 	switch (s) {
 	case AVCOL_SPC_BT709:
@@ -247,14 +261,12 @@ convert_color_space(enum AVColorSpace s, enum AVColorTransferCharacteristic trc,
 
 #else
 	case AVCOL_SPC_BT2020_NCL:
-		return (trc == AVCOL_TRC_ARIB_STD_B67) ? VIDEO_CS_2100_HLG
-						       : VIDEO_CS_2100_PQ;
+		return (trc == AVCOL_TRC_ARIB_STD_B67) ? VIDEO_CS_2100_HLG : VIDEO_CS_2100_PQ;
+
 	default:
 		return (color_primaries == AVCOL_PRI_BT2020)
-			       ? ((trc == AVCOL_TRC_ARIB_STD_B67)
-					  ? VIDEO_CS_2100_HLG
-					  : VIDEO_CS_2100_PQ)
-			       : VIDEO_CS_DEFAULT;
+				? ((trc == AVCOL_TRC_ARIB_STD_B67) ? VIDEO_CS_2100_HLG : VIDEO_CS_2100_PQ)
+				: VIDEO_CS_DEFAULT;
 #endif
 	}
 }
@@ -326,7 +338,15 @@ void FFMpegDecoder::push_ready_packet(DataPacket* packet)
 		if (codec->id == AV_CODEC_ID_H264) {
 			int nalType = packet->data[2] == 1 ? (packet->data[3] & 0x1f) : (packet->data[4] & 0x1f);
 			if (nalType < 5) {
-				dlog("discard non-keyframe");
+				dlog("discard non-keyframe (AVC)");
+				recieveQueue.add_item(packet);
+				return;
+			}
+		}
+		else if (codec->id == AV_CODEC_ID_H265) {
+			int nalType = packet->data[2] == 1 ? ((packet->data[3] >> 1) & 0x3f) : ((packet->data[4] >> 1) & 0x3f);
+			if (nalType < 10) {
+				dlog("discard non-keyframe (HEVC)");
 				recieveQueue.add_item(packet);
 				return;
 			}
@@ -338,12 +358,12 @@ void FFMpegDecoder::push_ready_packet(DataPacket* packet)
 
 	decodeQueue.add_item(packet);
 
-	if (codec->id == AV_CODEC_ID_H264 && decodeQueue.items.size() > 25) {
-		catchup = true;
-	}
 	// ((uint64_t)plugin->obs_audio_frame.frames * MILLI_SEC / (uint64_t)plugin->obs_audio_frame.samples_per_sec)
 	// At 44100HZ, 1 AAC Frame = 23ms
-	else if (codec->id == AV_CODEC_ID_AAC && decodeQueue.items.size() > (1000/23)) {
+	if (codec->id == AV_CODEC_ID_AAC && decodeQueue.items.size() > (1000/23)) {
+		catchup = true;
+	}
+	else if (decodeQueue.items.size() > 25) { // AVC, HEVC
 		catchup = true;
 	}
 }
@@ -376,7 +396,8 @@ bool FFMpegDecoder::decode_video(struct obs_source_frame2* obs_frame, DataPacket
 GOT_FRAME:
 	if (hw) {
 		if (frame_hw->format == hw_pix_fmt) {
-			if (av_hwframe_transfer_data(frame, frame_hw, 0) != 0)
+			if (av_hwframe_transfer_data(frame, frame_hw, 0) != 0
+					|| av_frame_copy_props(frame, frame_hw) != 0)
 				return false;
 			out_frame = frame;
 		}
@@ -389,6 +410,7 @@ GOT_FRAME:
 
 	if (obs_frame->format == VIDEO_FORMAT_NONE) {
 		obs_frame->format = convert_pixel_format(out_frame->format);
+		ilog("format = %s", get_video_format_name(obs_frame->format));
 		if (obs_frame->format == VIDEO_FORMAT_NONE)
 			return false;
 
@@ -411,6 +433,8 @@ GOT_FRAME:
 		default:
 			obs_frame->trc = VIDEO_TRC_DEFAULT;
 		}
+		dlog("trc    = %d (from %s)", obs_frame->trc, av_color_transfer_name(out_frame->color_trc));
+
 		#endif
 	}
 
@@ -422,6 +446,11 @@ GOT_FRAME:
 		const enum video_colorspace cs = convert_color_space(
 			out_frame->colorspace, out_frame->color_trc,
 			out_frame->color_primaries);
+
+		ilog("colorspace = %s (from %s / %s)",
+			get_video_colorspace_name(cs),
+			av_color_space_name(out_frame->colorspace),
+			av_color_primaries_name(out_frame->color_primaries));
 
 		#if LIBOBS_API_MAJOR_VER < 28
 		video_format_get_parameters(

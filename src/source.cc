@@ -69,6 +69,7 @@ struct droidcam_obs_source {
     bool deactivateWNS;
     bool enable_audio;
     bool use_hw;
+    bool use_hdr;
     bool audio_running;
     bool video_running;
     int video_width, video_height;
@@ -301,16 +302,11 @@ recv_video_frame(droidcam_obs_source *plugin, socket_t sock) {
     Decoder *decoder = plugin->video_decoder;
 
     if (!decoder) {
-        if (plugin->video_format == FORMAT_AVC) {
-            decoder = new FFMpegDecoder();
-        }
-        else if (plugin->video_format == FORMAT_MJPG) {
+        if (plugin->video_format == FORMAT_MJPG) {
             decoder = new MJpegDecoder();
         }
         else {
-            elog("unexpected video format %d", plugin->video_format);
-            decoder = new MJpegDecoder();
-            decoder->failed = true;
+            decoder = new FFMpegDecoder();
         }
         plugin->video_decoder = decoder;
     }
@@ -338,6 +334,9 @@ recv_video_frame(droidcam_obs_source *plugin, socket_t sock) {
 
         if (plugin->video_format == FORMAT_AVC) {
             init = (((FFMpegDecoder*)decoder)->init(NULL, AV_CODEC_ID_H264, use_hw) >= 0);
+        }
+        else if (plugin->video_format == FORMAT_HEVC) {
+            init = (((FFMpegDecoder*)decoder)->init(NULL, AV_CODEC_ID_H265, use_hw) >= 0);
         }
         else if (plugin->video_format == FORMAT_MJPG) {
             init = ((MJpegDecoder*)decoder)->init();
@@ -428,9 +427,10 @@ static void *video_thread(void *data) {
                 plugin->usb_port,
                 os_name_version,
                 #if DROIDCAM_OVERRIDE
-                ""/*obs_version_str*/, client_version_str,
+                ""/*obs_version_str*/, client_version_str, 0/*use_hdr*/,
                 #else
                 obs_version_str, PLUGIN_VERSION_STR,
+                (plugin->use_hdr && plugin->video_format == FORMAT_HEVC),
                 #endif
                 5912/*NONCE*/);
 
@@ -862,6 +862,7 @@ void *source_create(obs_data_t *settings, obs_source_t *source) {
     plugin->video_decoder = NULL;
     plugin->usb_port = 0;
     plugin->use_hw = obs_data_get_bool(settings, OPT_USE_HW_ACCEL);
+    plugin->use_hdr = obs_data_get_bool(settings, OPT_USE_HDR);
     plugin->video_format = (VideoFormat) obs_data_get_int(settings, OPT_VIDEO_FORMAT);
     plugin->enable_audio  = obs_data_get_bool(settings, OPT_ENABLE_AUDIO);
     plugin->deactivateWNS = obs_data_get_bool(settings, OPT_DEACTIVATE_WNS);
@@ -1042,6 +1043,7 @@ static inline void toggle_ppts(obs_properties_t *ppts, bool enable) {
     obs_property_set_enabled(obs_properties_get(ppts, OPT_APP_PORT)    , enable);
     obs_property_set_enabled(obs_properties_get(ppts, OPT_ENABLE_AUDIO), enable);
     obs_property_set_enabled(obs_properties_get(ppts, OPT_USE_HW_ACCEL), enable);
+    obs_property_set_enabled(obs_properties_get(ppts, OPT_USE_HDR)     , enable);
 }
 
 void resolve_device_type(struct active_device_info *device_info, void* data) {
@@ -1300,6 +1302,7 @@ void source_update(void *data, obs_data_t *settings) {
     plugin->deactivateWNS = obs_data_get_bool(settings, OPT_DEACTIVATE_WNS);
     plugin->enable_audio  = obs_data_get_bool(settings, OPT_ENABLE_AUDIO);
     plugin->use_hw = obs_data_get_bool(settings, OPT_USE_HW_ACCEL);
+    plugin->use_hdr = obs_data_get_bool(settings, OPT_USE_HDR);
     bool sync_av = false; // obs_data_get_bool(settings, OPT_SYNC_AV);
     bool activated = obs_data_get_bool(settings, OPT_IS_ACTIVATED);
 
@@ -1398,6 +1401,9 @@ obs_properties_t *source_properties(void *data) {
     obs_properties_add_bool(ppts, OPT_DEACTIVATE_WNS, TEXT_DWNS);
     #endif
     obs_properties_add_bool(ppts, OPT_USE_HW_ACCEL, TEXT_USE_HW_ACCEL);
+    #if DROIDCAM_OVERRIDE==0 && LIBOBS_API_MAJOR_VER > 27
+    obs_properties_add_bool(ppts, OPT_USE_HDR, TEXT_USE_HDR);
+    #endif
 
     if (activated) {
         toggle_ppts(ppts, false);
@@ -1412,6 +1418,7 @@ void source_defaults(obs_data_t *settings) {
     obs_data_set_default_bool(settings, OPT_UHD_UNLOCK, false);
     obs_data_set_default_bool(settings, OPT_IS_ACTIVATED, false);
     obs_data_set_default_bool(settings, OPT_SYNC_AV, false);
+    obs_data_set_default_bool(settings, OPT_USE_HDR, false);
     obs_data_set_default_bool(settings, OPT_USE_HW_ACCEL, true);
     obs_data_set_default_bool(settings, OPT_ENABLE_AUDIO, false);
     obs_data_set_default_bool(settings, OPT_DEACTIVATE_WNS, false);
