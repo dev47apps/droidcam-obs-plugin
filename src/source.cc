@@ -984,20 +984,26 @@ void source_show(void *data) {
     #if defined(ENABLE_GUI) && LIBOBS_API_MAJOR_VER > 27
     obs_source_t *scene = obs_frontend_get_current_scene();
     if (scene) {
-        obs_sceneitem_t *item = obs_scene_sceneitem_from_source(obs_scene_from_source(scene), plugin->source);
-        if (item) {
-            vec2 pos;
-            vec2 scale;
-            struct obs_sceneitem_crop crop;
-            obs_sceneitem_get_pos(item, &pos);
-            obs_sceneitem_get_crop(item, &crop);
-            obs_sceneitem_get_scale(item, &scale);
-            ilog("pos:%.0f,%.0f scale:%.1f,%.1f rot:%.1f crop:%d,%d; %d,%d",
-                pos.x, pos.y, scale.x, scale.y,
-                obs_sceneitem_get_rot(item),
-                crop.left, crop.top, crop.right, crop.bottom);
-            obs_sceneitem_release(item);
-        }
+        obs_scene_enum_items(obs_scene_from_source(scene),
+            [](obs_scene_t*, obs_sceneitem_t *item, void *data) {
+            obs_source_t* source = (obs_source_t*) data;
+            if (obs_sceneitem_get_source(item) == source) {
+                vec2 pos;
+                vec2 scale;
+                struct obs_sceneitem_crop crop;
+                obs_sceneitem_get_pos(item, &pos);
+                obs_sceneitem_get_crop(item, &crop);
+                obs_sceneitem_get_scale(item, &scale);
+                ilog("pos:%.0f,%.0f scale:%.1f,%.1f rot:%.1f crop:%d,%d; %d,%d",
+                    pos.x, pos.y, scale.x, scale.y,
+                    obs_sceneitem_get_rot(item),
+                    crop.left, crop.top, crop.right, crop.bottom);
+
+                return false; // stop enumeration
+            }
+            return true;
+        }, plugin->source);
+
         obs_source_release(scene);
     }
     #endif

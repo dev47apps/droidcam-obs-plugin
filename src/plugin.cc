@@ -92,9 +92,14 @@ static inline void swap_bindIP() {
 #endif
 
 OBS_DECLARE_MODULE()
+OBS_MODULE_AUTHOR("Dev47Apps")
 OBS_MODULE_USE_DEFAULT_LOCALE("droidcam-obs", "en-US")
 MODULE_EXPORT const char *obs_module_description(void) {
-    return "Android and iOS camera source";
+    return "Use your phone as a camera source with the DroidCam app.";
+}
+
+MODULE_EXPORT const char *obs_module_name(void) {
+    return "DroidCam";
 }
 
 bool obs_module_load(void) {
