@@ -71,6 +71,7 @@ cmd_execute(const char *path, const char *const argv[], pid_t *pid, char* out, s
         } while (n > 0);
     }
     else if (*pid == 0) {
+        // redirect output to pipe
         if (dup2(fd[1], STDOUT_FILENO) < 0) {
             elog("dup2 stdout: %s", strerror(errno));
             _exit(PROCESS_ERROR_GENERIC);
@@ -103,7 +104,6 @@ cmd_execute(const char *path, const char *const argv[], pid_t *pid, char* out, s
             ret = PROCESS_ERROR_MISSING_BINARY;
         else
             ret = PROCESS_ERROR_GENERIC;
-        elog("exec: %s", strerror(errno));
         _exit(ret);
     }
 
@@ -122,10 +122,12 @@ bool
 cmd_simple_wait(pid_t pid, int *exit_code) {
     int status;
     int code;
-    if (waitpid(pid, &status, 0) == -1 || !WIFEXITED(status)) {
-        // could not wait, or exited unexpectedly, probably by a signal
+    if (waitpid(pid, &status, 0) == -1) {
         code = -1;
-        elog("waitpid: %s", strerror(errno));
+        elog("waitpid: failed: %s", strerror(errno));
+    } else if (!WIFEXITED(status)) {
+        code = -1;
+        elog("waitpid: exited unexpectedly");
     } else {
         code = WEXITSTATUS(status);
     }

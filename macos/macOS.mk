@@ -1,15 +1,15 @@
 # Variables with ?= can be overridden
 # Example: `ARCH=arm64 make `
 ARCH       ?= x86_64
-DEPS_DIR   ?= ../deps/29
+DEPS_DIR   ?= ../deps/32
 OBS_DIR    ?= $(DEPS_DIR)/src
 FFMPEG_DIR ?= $(DEPS_DIR)
 QT_DIR     ?= /usr/local/opt/qt6
 JPEG_DIR   ?= /usr/local/opt/libjpeg-turbo
 
-
 CXXFLAGS += -dead_strip
 CXXFLAGS += -target $(ARCH)-apple-darwin
+CXXFLAGS += -DENABLE_GUI -DQT_NO_VERSION_TAGGING
 
 INCLUDES += -I$(QT_DIR)/include
 INCLUDES += -I$(QT_DIR)/include/QtCore
@@ -20,8 +20,8 @@ INCLUDES += -I$(QT_DIR)/include/SvgWidgets
 
 INCLUDES += -I$(JPEG_DIR)/include
 INCLUDES += -I$(FFMPEG_DIR)/include
-INCLUDES += -I$(OBS_DIR)/UI
-INCLUDES += -I$(OBS_DIR)/UI/obs-frontend-api
+INCLUDES += -I$(OBS_DIR)/frontend
+INCLUDES += -I$(OBS_DIR)/frontend/api
 INCLUDES += -I$(OBS_DIR)/libobs
 
 LDD_DIRS += -L$(JPEG_DIR)/lib
