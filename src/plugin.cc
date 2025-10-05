@@ -106,12 +106,6 @@ bool obs_module_load(void) {
     memset(os_name_version, 0, sizeof(os_name_version));
     memset(&droidcam_obs_info, 0, sizeof(struct obs_source_info));
 
-    if (AV_VERSION_MAJOR(avcodec_version()) > LIBAVCODEC_VERSION_MAJOR) {
-        blog(LOG_ERROR, "[droidcam-obs] libavcodec version %u is too high (<= %d required for this release).",
-            AV_VERSION_MAJOR(avcodec_version()), LIBAVCODEC_VERSION_MAJOR);
-        return false;
-    }
-
     droidcam_obs_info.id           = "droidcam_obs";
     droidcam_obs_info.type         = OBS_SOURCE_TYPE_INPUT;
     droidcam_obs_info.output_flags = OBS_SOURCE_DO_NOT_DUPLICATE | OBS_SOURCE_AUDIO | OBS_SOURCE_ASYNC_VIDEO;
