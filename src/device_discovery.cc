@@ -403,30 +403,51 @@ void AdbMgr::ClearForwards(int port_start, int port_last) {
 USBMux::USBMux() : iproxy(this) {
     hModuleUsbmux = NULL;
     hModuleIDevice = NULL;
+    idevice_dll = NULL;
+    usbmuxd_dll = NULL;
     usbmuxd_device_list = NULL;
 
 #ifdef TEST
 
 #elif defined(_WIN32)
-    usbmuxd_dll = obs_module_file("libusbmuxd-2.0.dll");
-    idevice_dll = obs_module_file("libimobiledevice-1.0.dll");
-
-    if (!usbmuxd_dll) {
-        elog("iOS USB support not available");
-        return;
-    }
+    const char *USBMUXD_VARIANTS[] = {
+        "libusbmuxd-2.0.dll",
+        "usbmuxd.dll",
+    };
+    const char *IMOBILEDEV_VARIANTS[] = {
+        "libimobiledevice-1.0.dll",
+        "imobiledevice.dll",
+    };
 
     SetDllDirectory(obs_get_module_data_path((obs_current_module())));
 
-    hModuleIDevice = LoadLibrary(idevice_dll);
-    if (!hModuleIDevice) {
-        elog("LoadLibrary failed for %s, errno=%d", "idevice_dll", GetLastError());
-        return;
+    for (size_t i = 0; i < ARRAY_LEN(IMOBILEDEV_VARIANTS); i++) {
+        FreeAll();
+        dlog("trying %s", IMOBILEDEV_VARIANTS[i]);
+
+        usbmuxd_dll = obs_module_file(USBMUXD_VARIANTS[i]);
+        idevice_dll = obs_module_file(IMOBILEDEV_VARIANTS[i]);
+
+        if (!idevice_dll || !usbmuxd_dll)
+            continue;
+
+        hModuleIDevice = LoadLibrary(idevice_dll);
+        if (!hModuleIDevice) {
+            ilog("LoadLibrary failed for %s, errno=%d", IMOBILEDEV_VARIANTS[i], GetLastError());
+            continue;
+        }
+
+        hModuleUsbmux = LoadLibrary(usbmuxd_dll);
+        if (!hModuleUsbmux) {
+            elog("LoadLibrary failed for %s, errno=%d", USBMUXD_VARIANTS[i], GetLastError());
+            continue;
+        }
+
+        break;
     }
 
-    hModuleUsbmux = LoadLibrary(usbmuxd_dll);
-    if (!hModuleUsbmux) {
-        elog("LoadLibrary failed for %s, errno=%d", "usbmuxd_dll", GetLastError());
+    if (!(hModuleUsbmux && hModuleIDevice)) {
+        elog("iOS USB support not available");
         return;
     }
 
@@ -447,6 +468,7 @@ USBMux::USBMux() : iproxy(this) {
     usbmuxd_set_debug_level(9);
     #endif
     libusbmuxd_version_t usbmuxd_version = (libusbmuxd_version_t)GetProcAddress(hModuleUsbmux, "libusbmuxd_version");
+    if (usbmuxd_version)
     ilog("usbmuxd version %.*s loaded", 8, usbmuxd_version());
 
 #elif defined(__linux__)
@@ -509,18 +531,10 @@ USBMux::~USBMux() {
     }
 
 #ifdef TEST
+    //
+
 #elif defined(_WIN32)
-    if (usbmuxd_dll)
-        bfree(usbmuxd_dll);
-
-    if (idevice_dll)
-        bfree(idevice_dll);
-
-    if (hModuleIDevice)
-        FreeLibrary(hModuleIDevice);
-
-    if (hModuleUsbmux)
-        FreeLibrary(hModuleUsbmux);
+    FreeAll();
 
 #elif defined(__linux__)
 
@@ -536,6 +550,30 @@ USBMux::~USBMux() {
 
 #endif // __APPLE__
 }
+
+#if defined(_WIN32)
+void USBMux::FreeAll() {
+    if (hModuleIDevice) {
+        FreeLibrary(hModuleIDevice);
+        hModuleIDevice = NULL;
+    }
+
+    if (hModuleUsbmux) {
+        FreeLibrary(hModuleUsbmux);
+        hModuleUsbmux = NULL;
+    }
+
+    if (idevice_dll) {
+        bfree(idevice_dll);
+        idevice_dll = NULL;
+    }
+
+    if (usbmuxd_dll) {
+        bfree(usbmuxd_dll);
+        usbmuxd_dll = NULL;
+    }
+}
+#endif
 
 void USBMux::GetModel(Device* dev) {
 #ifdef __APPLE__
@@ -621,7 +659,17 @@ void USBMux::DoReload(void) {
     int deviceCount = usbmuxd_get_device_list(&usbmuxd_device_list);
 
     if (deviceCount < 0) {
-        elog("Could not get iOS device list, is usbmuxd running? error=%d", deviceCount);
+        const char* hint =
+        #ifdef TEST
+            "";
+        #elif defined(_WIN32)
+            "AMDS missing?";
+        #elif defined(__linux__)
+            "Is usbmuxd running?";
+        #endif
+
+        elog("Could not get iOS device list. %s. error=%d",
+            hint, deviceCount);
         return;
     }
 

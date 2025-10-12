@@ -144,6 +144,7 @@ struct USBMux : DeviceDiscovery {
 
     HMODULE hModuleIDevice;
     HMODULE hModuleUsbmux;
+    void FreeAll();
 #else
     void* hModuleIDevice;
     void* hModuleUsbmux;
