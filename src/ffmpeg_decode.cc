@@ -120,7 +120,11 @@ int FFMpegDecoder::init(uint8_t* header, enum AVCodecID id, bool use_hw)
 		}
 
 		decoder->sample_rate = aac_frequencies[sr_idx];
-		decoder->profile = FF_PROFILE_AAC_LOW;
+		#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(62, 0, 0)
+    	decoder->profile = FF_PROFILE_AAC_LOW;
+		#else
+    	decoder->profile = AV_PROFILE_AAC_LOW;
+		#endif
 
 		const int channels = (header[1] >> 3) & 0xF;
 		#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(59, 24, 100)
