@@ -403,8 +403,10 @@ void AdbMgr::ClearForwards(int port_start, int port_last) {
 USBMux::USBMux() : iproxy(this) {
     hModuleUsbmux = NULL;
     hModuleIDevice = NULL;
+#ifdef _WIN32
     idevice_dll = NULL;
     usbmuxd_dll = NULL;
+#endif
     usbmuxd_device_list = NULL;
 
 #ifdef TEST
