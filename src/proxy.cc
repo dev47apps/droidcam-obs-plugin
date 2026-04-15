@@ -22,7 +22,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <util/bmem.h>
 #endif
 
-#include <vector>
+#include <deque>
 
 #include "plugin.h"
 #include "plugin_properties.h"
@@ -89,7 +89,7 @@ struct proxy_conn {
 
 void* proxy_run(void *data) {
     fd_set set;
-    std::vector<struct proxy_conn*> list;
+    std::deque<struct proxy_conn*> list;
     Proxy *proxy = (Proxy*) data;
 
     auto buffer = (uint8_t*) bmalloc(BUF_SIZE);

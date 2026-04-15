@@ -2,13 +2,13 @@
 #ifndef __DECODER_H__
 #define __DECODER_H__
 
-#include <vector>
+#include <deque>
 #include <mutex>
 
 template<typename T>
 struct Queue {
     std::mutex items_lock;
-    std::vector<T> items;
+    std::deque<T> items;
 
     void add_item(T item) {
         items_lock.lock();

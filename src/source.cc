@@ -190,7 +190,7 @@ read_frame(Decoder *decoder, socket_t sock, int *has_config)
     AGAIN:
     r = net_recv_all(sock, header, HEADER_SIZE);
     if (r != HEADER_SIZE) {
-        elog("read header recv returned %ld", r);
+        elog("read header timeout/error: got %ld expected %ld", r, HEADER_SIZE);
         return NULL;
     }
 
@@ -204,7 +204,7 @@ read_frame(Decoder *decoder, socket_t sock, int *has_config)
     }
 
     if (len == 0 || len > MAXPACKET) {
-        elog("read_frame: packet too large/empty: %ld", len);
+        elog("read_frame: packet too large or empty at len=%ld", len);
         return NULL;
     }
 
@@ -222,7 +222,7 @@ read_frame(Decoder *decoder, socket_t sock, int *has_config)
 
         r = net_recv_all(sock, config, len);
         if (r != len) {
-            elog("read config recv returned %ld", r);
+            elog("read_frame: config timeout/error: got %ld expected %ld", r, len);
             return NULL;
         }
 
@@ -241,7 +241,7 @@ read_frame(Decoder *decoder, socket_t sock, int *has_config)
 
     r = net_recv_all(sock, p, len);
     if (r != len) {
-        elog("read_frame: read %ld bytes wanted %ld", r, len);
+        elog("read_frame: timeout/error: read %ld bytes wanted %ld", r, len);
         decoder->push_empty_packet(data_packet);
         return NULL;
     }
@@ -850,8 +850,6 @@ static void settings_migration(obs_data_t *settings, droidcam_obs_source *plugin
 
 void *source_create(obs_data_t *settings, obs_source_t *source) {
     ilog("Source: \"%s\" - " PLUGIN_VERSION_STR, obs_source_get_name(source));
-    obs_source_set_async_unbuffered(source, true);
-
     droidcam_obs_source *plugin = new droidcam_obs_source();
     settings_migration(settings, plugin);
 
@@ -867,6 +865,7 @@ void *source_create(obs_data_t *settings, obs_source_t *source) {
     plugin->enable_audio  = obs_data_get_bool(settings, OPT_ENABLE_AUDIO);
     plugin->deactivateWNS = obs_data_get_bool(settings, OPT_DEACTIVATE_WNS);
     plugin->activated = obs_data_get_bool(settings, OPT_IS_ACTIVATED);
+    obs_source_set_async_unbuffered(source, obs_data_get_bool(settings, OPT_UNBUFFERED_OUT));
     obs_data_set_string(settings, "remote_url", "");
 
     const char* video_resolution = obs_data_get_string(settings, OPT_RESOLUTION_STR);
@@ -1305,13 +1304,17 @@ void source_update(void *data, obs_data_t *settings) {
     plugin->use_hdr = obs_data_get_bool(settings, OPT_USE_HDR);
     bool sync_av = false; // obs_data_get_bool(settings, OPT_SYNC_AV);
     bool activated = obs_data_get_bool(settings, OPT_IS_ACTIVATED);
+    bool unbuffered = obs_data_get_bool(settings, OPT_UNBUFFERED_OUT);
 
-    dlog("on source_update: activated=%d (actual=%d) audio=%d sync_av=%d",
+    dlog("on source_update: activated=%d (actual=%d) audio=%d unbuffered=%d sync_av=%d",
         plugin->activated,
         activated,
         plugin->enable_audio,
+        unbuffered,
         sync_av);
-    obs_source_set_async_decoupled(plugin->source, !sync_av);
+
+    obs_source_set_async_decoupled(plugin->source, !sync_av); // nb: only works when in unbuffered mode.
+    obs_source_set_async_unbuffered(plugin->source, unbuffered);
 
     // handle [Cancel] case
     if (activated != plugin->activated) {
@@ -1390,7 +1393,7 @@ obs_properties_t *source_properties(void *data) {
 
     obs_property_list_add_string(cp, TEXT_USE_WIFI, opt_use_wifi);
     obs_properties_add_button(ppts, OPT_REFRESH, TEXT_REFRESH, refresh_clicked);
-    cp = obs_properties_add_button(ppts, OPT_CONNECT, TEXT_CONNECT, connect_clicked);
+    obs_properties_add_button(ppts, OPT_CONNECT, (activated ? TEXT_DEACTIVATE : TEXT_CONNECT), connect_clicked);
 
     obs_properties_add_text(ppts, OPT_WIFI_IP, "WiFi IP", OBS_TEXT_DEFAULT);
     obs_properties_add_int(ppts, OPT_APP_PORT, "DroidCam Port", 1, 65535, 1);
@@ -1400,6 +1403,10 @@ obs_properties_t *source_properties(void *data) {
     #if DROIDCAM_OVERRIDE==0
     obs_properties_add_bool(ppts, OPT_DEACTIVATE_WNS, TEXT_DWNS);
     #endif
+
+    cp = obs_properties_add_bool(ppts, OPT_UNBUFFERED_OUT, TEXT_LATENCY_TOGGLE);
+    obs_property_set_long_description(cp, TEXT_LATENCY_DESCR);
+
     obs_properties_add_bool(ppts, OPT_USE_HW_ACCEL, TEXT_USE_HW_ACCEL);
     #if DROIDCAM_OVERRIDE==0 && LIBOBS_API_MAJOR_VER > 27
     obs_properties_add_bool(ppts, OPT_USE_HDR, TEXT_USE_HDR);
@@ -1407,7 +1414,6 @@ obs_properties_t *source_properties(void *data) {
 
     if (activated) {
         toggle_ppts(ppts, false);
-        obs_property_set_description(cp, TEXT_DEACTIVATE);
     }
 
     return ppts;
@@ -1422,6 +1428,7 @@ void source_defaults(obs_data_t *settings) {
     obs_data_set_default_bool(settings, OPT_USE_HW_ACCEL, true);
     obs_data_set_default_bool(settings, OPT_ENABLE_AUDIO, false);
     obs_data_set_default_bool(settings, OPT_DEACTIVATE_WNS, false);
+    obs_data_set_default_bool(settings, OPT_UNBUFFERED_OUT, true);
     obs_data_set_default_int(settings, OPT_APP_PORT, DEFAULT_PORT);
     obs_data_set_default_string(settings, OPT_RESOLUTION_STR, Resolutions[0]);
 }

@@ -11,6 +11,7 @@
 #define OPT_SYNC_AV           "sync_av"
 #define OPT_USE_HDR           "allow_hdr"
 #define OPT_USE_HW_ACCEL      "allow_hw_accel"
+#define OPT_UNBUFFERED_OUT    "unbuffered_output"
 #define OPT_IS_ACTIVATED      "activated"
 #define OPT_ENABLE_AUDIO      "enable_aduio"
 #define OPT_DEVICE_LIST       "device_list"
@@ -33,6 +34,8 @@
 #define TEXT_SYNC_AV        obs_module_text("SyncAV")
 #define TEXT_USE_HDR        obs_module_text("AllowHDR")
 #define TEXT_USE_HW_ACCEL   obs_module_text("AllowHWAccel")
+#define TEXT_LATENCY_TOGGLE obs_module_text("LatencyToggle")
+#define TEXT_LATENCY_DESCR  obs_module_text("LatencyToolTip")
 
 #define PING_REQ "GET /ping"
 #define BATT_REQ "GET /battery HTTP/1.1\r\n\r\n"

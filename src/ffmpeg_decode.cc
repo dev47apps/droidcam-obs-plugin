@@ -329,7 +329,8 @@ DataPacket* FFMpegDecoder::pull_empty_packet(size_t size)
 void FFMpegDecoder::push_ready_packet(DataPacket* packet)
 {
 	if (catchup) {
-		if (decodeQueue.items.size() > 0){
+		// Discard all incoming frames until the decoder has drained the queue
+		if (decodeQueue.items.size() > 1){
 			recieveQueue.add_item(packet);
 			return;
 		}
@@ -363,7 +364,7 @@ void FFMpegDecoder::push_ready_packet(DataPacket* packet)
 	if (codec->id == AV_CODEC_ID_AAC && decodeQueue.items.size() > (1000/23)) {
 		catchup = true;
 	}
-	else if (decodeQueue.items.size() > 25) { // AVC, HEVC
+	else if (decodeQueue.items.size() > 30) { // AVC, HEVC
 		catchup = true;
 	}
 }
