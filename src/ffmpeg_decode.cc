@@ -38,9 +38,6 @@ extern "C" {
 
 enum AVHWDeviceType hw_device_list[] = {
 	#ifdef _WIN32
-	#if LIBAVCODEC_VERSION_MAJOR > 60
-	AV_HWDEVICE_TYPE_D3D12VA,
-	#endif
 	AV_HWDEVICE_TYPE_D3D11VA,
 	AV_HWDEVICE_TYPE_CUDA,
 	AV_HWDEVICE_TYPE_DXVA2,

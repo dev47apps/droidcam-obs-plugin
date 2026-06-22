@@ -1392,8 +1392,8 @@ obs_properties_t *source_properties(void *data) {
     }
 
     obs_property_list_add_string(cp, TEXT_USE_WIFI, opt_use_wifi);
-    obs_properties_add_button(ppts, OPT_REFRESH, TEXT_REFRESH, refresh_clicked);
-    obs_properties_add_button(ppts, OPT_CONNECT, (activated ? TEXT_DEACTIVATE : TEXT_CONNECT), connect_clicked);
+    obs_properties_add_button2(ppts, OPT_REFRESH, TEXT_REFRESH, refresh_clicked, data);
+    obs_properties_add_button2(ppts, OPT_CONNECT, (activated ? TEXT_DEACTIVATE : TEXT_CONNECT), connect_clicked, data);
 
     obs_properties_add_text(ppts, OPT_WIFI_IP, "WiFi IP", OBS_TEXT_DEFAULT);
     obs_properties_add_int(ppts, OPT_APP_PORT, "DroidCam Port", 1, 65535, 1);
