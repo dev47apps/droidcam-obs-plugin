@@ -421,9 +421,12 @@ static void *video_thread(void *data) {
             if ((sock = connect(plugin)) == INVALID_SOCKET)
                 goto SLOW_LOOP;
 
+            int portrait_width = plugin->video_height;
+            int portrait_height = plugin->video_width;
+            
             video_req_len = snprintf(video_req, sizeof(video_req), VIDEO_REQ,
                 VideoFormatNames[plugin->video_format][1],
-                plugin->video_width, plugin->video_height,
+                portrait_width, portrait_height,
                 plugin->usb_port,
                 os_name_version,
                 #if DROIDCAM_OVERRIDE
@@ -872,8 +875,8 @@ void *source_create(obs_data_t *settings, obs_source_t *source) {
     if (!ResolutionValid(video_resolution, &plugin->video_width, &plugin->video_height)) {
         obs_data_set_string(settings, OPT_RESOLUTION_STR, Resolutions[0]);
         if (!ConvertRes(Resolutions[0], &plugin->video_width, &plugin->video_height)) {
-            plugin->video_width  = 1280;
-            plugin->video_height = 720;
+            plugin->video_width  = 720;
+            plugin->video_height = 1280;
         }
     }
 
@@ -1107,7 +1110,7 @@ static bool video_parms_changed(void *data, obs_properties_t*, obs_property_t*,
     ilog("video_parms_changed: video_format:%s->%s video_resolution:%dx%d->%dx%d",
         VideoFormatNames[plugin->video_format][1], VideoFormatNames[video_format][1],
         plugin->video_width, plugin->video_height, width, height);
-
+	int temp_w = width; width = height; height = temp_w;
     plugin->video_width = width;
     plugin->video_height = height;
     plugin->video_format = video_format;
@@ -1392,8 +1395,8 @@ obs_properties_t *source_properties(void *data) {
     }
 
     obs_property_list_add_string(cp, TEXT_USE_WIFI, opt_use_wifi);
-    obs_properties_add_button2(ppts, OPT_REFRESH, TEXT_REFRESH, refresh_clicked, data);
-    obs_properties_add_button2(ppts, OPT_CONNECT, (activated ? TEXT_DEACTIVATE : TEXT_CONNECT), connect_clicked, data);
+    obs_properties_add_button(ppts, OPT_REFRESH, TEXT_REFRESH, refresh_clicked);
+    obs_properties_add_button(ppts, OPT_CONNECT, (activated ? TEXT_DEACTIVATE : TEXT_CONNECT), connect_clicked);
 
     obs_properties_add_text(ppts, OPT_WIFI_IP, "WiFi IP", OBS_TEXT_DEFAULT);
     obs_properties_add_int(ppts, OPT_APP_PORT, "DroidCam Port", 1, 65535, 1);
