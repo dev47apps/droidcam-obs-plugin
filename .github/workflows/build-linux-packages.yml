@@ -1,0 +1,77 @@
+name: Build Linux packages (.deb / .tar.xz)
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version to package (e.g. 2.5.1)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux-packages:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install packaging tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq unzip xz-utils dpkg-dev
+
+      - name: Resolve version
+        id: version
+        run: |
+          VERSION="${{ inputs.version }}"
+          if [ -z "$VERSION" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Download official Linux zip
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          mkdir -p /tmp/droidcam
+          URL="$(gh api repos/dev47apps/droidcam-obs-plugin/releases/tags/$VERSION \
+            --jq '.assets[] | select(.name | test("linux")) | .browser_download_url' \
+            2>/dev/null | head -1)"
+          if [ -z "$URL" ]; then
+            URL="https://github.com/dev47apps/droidcam-obs-plugin/releases/download/$VERSION/droidcam_obs_${VERSION}_linux_x86_64.zip"
+          fi
+          echo "Downloading $URL"
+          for i in 1 2 3 4 5 6; do
+            if curl -fsSL -o /tmp/droidcam/plugin.zip "$URL"; then
+              break
+            fi
+            echo "download attempt $i failed, retrying in 20s"
+            sleep 20
+          done
+          test -s /tmp/droidcam/plugin.zip || {
+            echo "error: failed to download the official Linux zip"
+            exit 1
+          }
+          ls -lh /tmp/droidcam/plugin.zip
+
+      - name: Unpack and build packages
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          mkdir -p /tmp/droidcam/unpacked
+          unzip -o /tmp/droidcam/plugin.zip -d /tmp/droidcam/unpacked
+          packaging/build-linux.sh /tmp/droidcam/unpacked "$VERSION"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: droidcam-obs-linux-packages
+          path: dist/*
+
+      - name: Attach to GitHub Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
