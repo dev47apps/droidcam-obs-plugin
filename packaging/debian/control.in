@@ -1,0 +1,12 @@
+Package: droidcam-obs
+Version: @VERSION@
+Section: video
+Priority: optional
+Architecture: amd64
+Maintainer: DroidCam OBS Plugin contributors <support@dev47apps.com>
+Depends: obs-studio (>= 30.0), libstdc++6
+Recommends: adb, usbmuxd
+Description: Use your phone as a camera source in OBS Studio
+ DroidCam turns your Android or iOS phone into a wireless or USB camera
+ for OBS Studio, with support for HD video at up to 4K.
+Homepage: https://droidcam.app/obs/
