@@ -48,7 +48,7 @@ $(BUILD_DIR):
 	}
 
 $(LIB_DLL): $(SRC)
-	$(CXX) $(CXXFLAGS) $(INCLUDES) $(LDD_DIRS) $(LDD_LIBS) $(LDD_FLAG) $^ $(STATIC) -o $@
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $(LDD_DIRS) $(LDD_FLAG) $^ $(LDD_LIBS) $(STATIC) -o $@
 
 clean:
 	$(RM) $(BUILD_DIR)/*.o $(BUILD_DIR)/*.so $(BUILD_DIR)/*.exe

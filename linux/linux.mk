@@ -1,5 +1,5 @@
 # Variables with ?= can be overridden
-# Example: `LIBUSBMUXD=libusbmuxd-2.0  make`
+# Example: `LIBUSBMUXD=libusbmuxd  make`
 # Example: `ALLOW_STATIC=yes  make`
 
 ALLOW_STATIC ?= no    # Allow static linking some deps
@@ -19,11 +19,12 @@ FFMPEG_INCLUDES ?= /usr/include/ffmpeg
 
 # dynamic linking library names
 LIBTURBOJPEG   ?= libturbojpeg
-LIBUSBMUXD     ?= libusbmuxd
-LIBIMOBILEDEV  ?= libimobiledevice
+LIBUSBMUXD     ?= libusbmuxd-2.0
+LIBIMOBILEDEV  ?= libimobiledevice-1.0
 
 #
 define ADD_Lib =
+	PKG_DEPS += $(1)
 	INCLUDES += $(shell pkg-config --cflags-only-I  $(1))
 	LDD_LIBS += $(shell pkg-config --libs-only-l  $(1))
 endef
@@ -59,3 +60,10 @@ INCLUDES += -I$(FFMPEG_INCLUDES)
 
 LDD_LIBS += -lobs
 LDD_FLAG += -shared
+
+# Fail the build if any pkg-config dependency is missing
+.PHONY: check_deps
+check_deps:
+	$(if $(PKG_DEPS),pkg-config --print-errors --exists $(PKG_DEPS))
+
+$(LIB_DLL): | check_deps
