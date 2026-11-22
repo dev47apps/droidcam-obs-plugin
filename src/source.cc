@@ -14,7 +14,11 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
+#include <errno.h>
+#include <inttypes.h>
+#include <stddef.h>
 #include <stdlib.h>
+#include <string>
 #include <util/threading.h>
 #include <util/platform.h>
 
@@ -176,23 +180,40 @@ static socket_t connect(struct droidcam_obs_source *plugin) {
     return INVALID_SOCKET;
 }
 
+static bool read_frame_part(socket_t sock, void *buffer, size_t expected,
+                            const char *stream, const char *part)
+{
+    const uint64_t start_ns = os_gettime_ns();
+    const ssize_t received = net_recv_all(sock, buffer, expected);
+    if (received >= 0 && static_cast<size_t>(received) == expected)
+        return true;
+
+#ifdef _WIN32
+    const int error = received < 0 ? WSAGetLastError() : 0;
+    const char *error_source = "winsock";
+#else
+    const int error = received < 0 ? errno : 0;
+    const char *error_source = "errno";
+#endif
+    const uint64_t elapsed_ms = (os_gettime_ns() - start_ns) / 1000000;
+    elog("recv stream=%s part=%s got=%td expected=%zu %s=%d elapsed_ms=%" PRIu64,
+         stream, part, static_cast<ptrdiff_t>(received), expected, error_source, error, elapsed_ms);
+    return false;
+}
+
 #define MAXCONFIG 1024
 #define MAXPACKET 1024 * 1024 * 16
 static DataPacket*
-read_frame(Decoder *decoder, socket_t sock, int *has_config)
+read_frame(Decoder *decoder, socket_t sock, int *has_config, const char *stream)
 {
     uint8_t header[HEADER_SIZE];
     uint8_t config[MAXCONFIG];
-    size_t r;
     size_t len, config_len = 0;
     uint64_t pts;
 
     AGAIN:
-    r = net_recv_all(sock, header, HEADER_SIZE);
-    if (r != HEADER_SIZE) {
-        elog("read header timeout/error: got %ld expected %ld", r, HEADER_SIZE);
+    if (!read_frame_part(sock, header, sizeof(header), stream, "header"))
         return NULL;
-    }
 
     pts = buffer_read64be(header);
     len = buffer_read32be(&header[8]);
@@ -220,11 +241,8 @@ read_frame(Decoder *decoder, socket_t sock, int *has_config)
             return NULL;
         }
 
-        r = net_recv_all(sock, config, len);
-        if (r != len) {
-            elog("read_frame: config timeout/error: got %ld expected %ld", r, len);
+        if (!read_frame_part(sock, config, len, stream, "config"))
             return NULL;
-        }
 
         ilog("read_frame: got config: %ld", len);
         config_len = len;
@@ -239,9 +257,7 @@ read_frame(Decoder *decoder, socket_t sock, int *has_config)
         p += config_len;
     }
 
-    r = net_recv_all(sock, p, len);
-    if (r != len) {
-        elog("read_frame: timeout/error: read %ld bytes wanted %ld", r, len);
+    if (!read_frame_part(sock, p, len, stream, "payload")) {
         decoder->push_empty_packet(data_packet);
         return NULL;
     }
@@ -258,6 +274,7 @@ static void *video_decode_thread(void *data) {
     DataPacket* data_packet = NULL;
     bool got_output;
 
+    bool reported_frame = false;
     ilog("video_decode_thread start");
 
     while (SOURCE_EXISTS()) {
@@ -285,6 +302,10 @@ static void *video_decode_thread(void *data) {
                 plugin->obs_video_frame.timestamp);
             #endif
             obs_source_output_video2(plugin->source, &plugin->obs_video_frame);
+            if (!reported_frame) {
+                ilog("first decoded video frame: %ux%u", plugin->obs_video_frame.width, plugin->obs_video_frame.height);
+                reported_frame = true;
+            }
         }
 
         LOOP:
@@ -311,7 +332,7 @@ recv_video_frame(droidcam_obs_source *plugin, socket_t sock) {
         plugin->video_decoder = decoder;
     }
 
-    data_packet = read_frame(decoder, sock, &has_config);
+    data_packet = read_frame(decoder, sock, &has_config, "video");
     if (!data_packet)
         return false;
 
@@ -361,6 +382,20 @@ recv_video_frame(droidcam_obs_source *plugin, socket_t sock) {
     return true;
 }
 
+static bool send_video_request(socket_t sock, const char *path, const active_device_info &device,
+                               bool use_http)
+{
+    if (!use_http)
+        return net_send_all(sock, path, strlen(path)) > 0;
+
+    std::string host(device.ip);
+    if (host.find(':') != std::string::npos && host.front() != '[')
+        host = "[" + host + "]";
+    const std::string request = std::string(path) + " HTTP/1.1\r\nHost: " + host + ":" +
+        std::to_string(device.port) + "\r\nConnection: close\r\n\r\n";
+    return net_send_all(sock, request.data(), request.size()) > 0;
+}
+
 static void *video_thread(void *data) {
     droidcam_obs_source *plugin = (droidcam_obs_source*)(data);
     const char *obs_version_str = obs_get_version_string();
@@ -368,6 +403,8 @@ static void *video_thread(void *data) {
     char remote_url[256];
     char video_req[256];
     int video_req_len = 0;
+    bool prefer_http = true;
+    bool waiting_for_wifi_frame = false;
 
     #if DROIDCAM_OVERRIDE
     // todo: dont do this
@@ -407,9 +444,17 @@ static void *video_thread(void *data) {
     while (SOURCE_EXISTS()) {
         if (plugin->activated && plugin->is_showing) {
             if (plugin->video_running) {
-                if (os_event_try(plugin->reset_signal) == EAGAIN
-                    && recv_video_frame(plugin, sock))
-                    continue;
+                if (os_event_try(plugin->reset_signal) == EAGAIN) {
+                    if (recv_video_frame(plugin, sock)) {
+                        waiting_for_wifi_frame = false;
+                        continue;
+                    }
+                    if (waiting_for_wifi_frame) {
+                        // Some older peers only accept the original unframed request.
+                        prefer_http = !prefer_http;
+                        ilog("retrying Wi-Fi video with %s request", prefer_http ? "HTTP/1.1" : "legacy");
+                    }
+                }
 
                 plugin->video_running = false;
                 dlog("closing failed video socket %d", sock);
@@ -435,7 +480,13 @@ static void *video_thread(void *data) {
                 5912/*NONCE*/);
 
             dlog("%s", video_req);
-            if (net_send_all(sock, video_req, video_req_len) <= 0) {
+#ifdef _WIN32
+            waiting_for_wifi_frame = (plugin->device_info.type == DeviceType::WIFI
+                || plugin->device_info.type == DeviceType::MDNS)
+                && plugin->device_info.ip && *plugin->device_info.ip;
+#endif
+            if (video_req_len <= 0 || static_cast<size_t>(video_req_len) >= sizeof(video_req)
+                || !send_video_request(sock, video_req, plugin->device_info, waiting_for_wifi_frame && prefer_http)) {
                 elog("send(/video) failed");
                 net_close(sock);
                 sock = INVALID_SOCKET;
@@ -517,7 +568,7 @@ do_audio_frame(droidcam_obs_source *plugin, socket_t sock) {
 
     int has_config = 0;
     bool got_output;
-    DataPacket* data_packet = read_frame(decoder, sock, &has_config);
+    DataPacket* data_packet = read_frame(decoder, sock, &has_config, "audio");
     if (!data_packet)
         return false;
 

@@ -172,6 +172,9 @@ bool obs_module_load(void) {
     get_os_name_version(os_name_version, sizeof(os_name_version));
     blog(LOG_INFO, "[droidcam-obs] module loaded release %s (%s)",
         PLUGIN_VERSION_STR, os_name_version);
+#ifdef _WIN32
+    ilog("Windows receive diagnostics enabled (Wi-Fi video HTTP/1.1)");
+#endif
     return true;
 }
 
